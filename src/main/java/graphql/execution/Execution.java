@@ -3,6 +3,9 @@ package graphql.execution;
 
 import graphql.ExecutionResult;
 import graphql.GraphQLException;
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.InstrumentationContext;
+import graphql.execution.instrumentation.parameters.DataFetchParameters;
 import graphql.language.Document;
 import graphql.language.Field;
 import graphql.language.OperationDefinition;
@@ -16,20 +19,22 @@ import java.util.Map;
 
 public class Execution {
 
-    private FieldCollector fieldCollector = new FieldCollector();
-    private ExecutionStrategy strategy;
+    private final FieldCollector fieldCollector = new FieldCollector();
+    private final ExecutionStrategy queryStrategy;
+    private final ExecutionStrategy mutationStrategy;
+    private final Instrumentation instrumentation;
 
-    public Execution(ExecutionStrategy strategy) {
-        this.strategy = strategy;
-
-        if (this.strategy == null) {
-            this.strategy = new SimpleExecutionStrategy();
-        }
+    public Execution(ExecutionStrategy queryStrategy, ExecutionStrategy mutationStrategy, Instrumentation instrumentation) {
+        this.queryStrategy = queryStrategy != null ? queryStrategy : new SimpleExecutionStrategy();
+        this.mutationStrategy = mutationStrategy != null ? mutationStrategy : new SimpleExecutionStrategy();
+        this.instrumentation = instrumentation;
     }
 
-    public ExecutionResult execute(GraphQLSchema graphQLSchema, Object root, Document document, String operationName, Map<String, Object> args) {
-        ExecutionContextBuilder executionContextBuilder = new ExecutionContextBuilder(new ValuesResolver());
-        ExecutionContext executionContext = executionContextBuilder.build(graphQLSchema, strategy, root, document, operationName, args);
+    public ExecutionResult execute(ExecutionId executionId, GraphQLSchema graphQLSchema, Object root, Document document, String operationName, Map<String, Object> args) {
+        ExecutionContextBuilder executionContextBuilder = new ExecutionContextBuilder(new ValuesResolver(), instrumentation);
+        ExecutionContext executionContext = executionContextBuilder
+                .executionId(executionId)
+                .build(graphQLSchema, queryStrategy, mutationStrategy, root, document, operationName, args);
         return executeOperation(executionContext, root, executionContext.getOperationDefinition());
     }
 
@@ -49,15 +54,22 @@ public class Execution {
             ExecutionContext executionContext,
             Object root,
             OperationDefinition operationDefinition) {
+
+        InstrumentationContext<ExecutionResult> dataFetchCtx = instrumentation.beginDataFetch(new DataFetchParameters(executionContext));
+
         GraphQLObjectType operationRootType = getOperationRootType(executionContext.getGraphQLSchema(), operationDefinition);
 
         Map<String, List<Field>> fields = new LinkedHashMap<String, List<Field>>();
         fieldCollector.collectFields(executionContext, operationRootType, operationDefinition.getSelectionSet(), new ArrayList<String>(), fields);
 
+        ExecutionResult result;
         if (operationDefinition.getOperation() == OperationDefinition.Operation.MUTATION) {
-            return new SimpleExecutionStrategy().execute(executionContext, operationRootType, root, fields);
+            result = mutationStrategy.execute(executionContext, operationRootType, root, fields);
         } else {
-            return strategy.execute(executionContext, operationRootType, root, fields);
+            result = queryStrategy.execute(executionContext, operationRootType, root, fields);
         }
+
+        dataFetchCtx.onEnd(result);
+        return result;
     }
 }

@@ -1,13 +1,15 @@
 package graphql.schema;
 
-import graphql.AssertException;
-
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import graphql.AssertException;
+
 import static graphql.Assert.assertNotNull;
+import static graphql.Assert.assertValidName;
 
 public class GraphQLInterfaceType implements GraphQLType, GraphQLOutputType, GraphQLFieldsContainer, GraphQLCompositeType, GraphQLUnmodifiedType, GraphQLNullableType {
 
@@ -17,7 +19,7 @@ public class GraphQLInterfaceType implements GraphQLType, GraphQLOutputType, Gra
     private final TypeResolver typeResolver;
 
     public GraphQLInterfaceType(String name, String description, List<GraphQLFieldDefinition> fieldDefinitions, TypeResolver typeResolver) {
-        assertNotNull(name, "name can't null");
+    	assertValidName(name);
         assertNotNull(typeResolver, "typeResolver can't null");
         assertNotNull(fieldDefinitions, "fieldDefinitions can't null");
         this.name = name;
@@ -70,7 +72,10 @@ public class GraphQLInterfaceType implements GraphQLType, GraphQLOutputType, Gra
         return new Builder();
     }
 
-
+    public static Reference reference(String name) {
+        return new Reference(name);
+    }
+    
     public static class Builder {
         private String name;
         private String description;
@@ -142,5 +147,9 @@ public class GraphQLInterfaceType implements GraphQLType, GraphQLOutputType, Gra
 
     }
 
-
+    private static class Reference extends GraphQLInterfaceType implements TypeReference {
+        private Reference(String name) {
+            super(name, "", Collections.<GraphQLFieldDefinition>emptyList(), new TypeResolverProxy());
+        }
+    }
 }

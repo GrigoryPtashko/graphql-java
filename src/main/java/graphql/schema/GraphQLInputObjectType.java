@@ -1,15 +1,17 @@
 package graphql.schema;
 
-import graphql.AssertException;
-
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static graphql.Assert.assertNotNull;
+import graphql.AssertException;
 
-public class GraphQLInputObjectType implements GraphQLType, GraphQLInputType, GraphQLUnmodifiedType, GraphQLNullableType {
+import static graphql.Assert.assertNotNull;
+import static graphql.Assert.assertValidName;
+
+public class GraphQLInputObjectType implements GraphQLType, GraphQLInputType, GraphQLUnmodifiedType, GraphQLNullableType, GraphQLInputFieldsContainer {
 
     private final String name;
     private final String description;
@@ -18,7 +20,7 @@ public class GraphQLInputObjectType implements GraphQLType, GraphQLInputType, Gr
     private final Map<String, GraphQLInputObjectField> fieldMap = new LinkedHashMap<String, GraphQLInputObjectField>();
 
     public GraphQLInputObjectType(String name, String description, List<GraphQLInputObjectField> fields) {
-        assertNotNull(name, "name can't be null");
+    	assertValidName(name);
         assertNotNull(fields, "fields can't be null");
         this.name = name;
         this.description = description;
@@ -52,6 +54,20 @@ public class GraphQLInputObjectType implements GraphQLType, GraphQLInputType, Gr
 
     public static Builder newInputObject() {
         return new Builder();
+    }
+
+    public static Reference reference(String name) {
+        return new Reference(name);
+    }
+    
+    @Override
+    public GraphQLInputObjectField getFieldDefinition(String name) {
+        return fieldMap.get(name);
+    }
+
+    @Override
+    public List<GraphQLInputObjectField> getFieldDefinitions() {
+        return new ArrayList<GraphQLInputObjectField>(fieldMap.values());
     }
 
     public static class Builder {
@@ -117,5 +133,11 @@ public class GraphQLInputObjectType implements GraphQLType, GraphQLInputType, Gr
             return new GraphQLInputObjectType(name, description, fields);
         }
 
+    }
+
+    private static class Reference extends GraphQLInputObjectType implements TypeReference {
+        private Reference(String name) {
+            super(name, "", Collections.<GraphQLInputObjectField>emptyList());
+        }
     }
 }

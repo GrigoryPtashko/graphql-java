@@ -8,6 +8,7 @@ apply plugin: 'java'
 apply plugin: 'maven'
 apply plugin: 'maven-publish'
 apply plugin: 'antlr'
+apply plugin: 'jacoco'
 
 sourceCompatibility = 1.6
 targetCompatibility = 1.6
@@ -151,6 +152,6 @@ tasks.withType(PublishToMavenRepository) {
 
 
 task wrapper(type: Wrapper) {
-    gradleVersion = '3.0'
+    gradleVersion = '3.2'
     distributionUrl = "http://services.gradle.org/distributions/gradle-${gradleVersion}-all.zip"
 }
