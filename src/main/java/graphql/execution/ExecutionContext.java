@@ -2,6 +2,8 @@ package graphql.execution;
 
 
 import graphql.GraphQLError;
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.NoOpInstrumentation;
 import graphql.language.FragmentDefinition;
 import graphql.language.OperationDefinition;
 import graphql.schema.GraphQLSchema;
@@ -13,22 +15,35 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class ExecutionContext {
 
     private final GraphQLSchema graphQLSchema;
+    private final ExecutionId executionId;
     private final ExecutionStrategy queryStrategy;
     private final ExecutionStrategy mutationStrategy;
     private final Map<String, FragmentDefinition> fragmentsByName;
     private final OperationDefinition operationDefinition;
     private final Map<String, Object> variables;
     private final Object root;
-    private final List<GraphQLError> errors = new CopyOnWriteArrayList<GraphQLError>();
+    private final List<GraphQLError> errors = new CopyOnWriteArrayList<>();
+    private final Instrumentation instrumentation;
 
-    public ExecutionContext(GraphQLSchema graphQLSchema, ExecutionStrategy queryStrategy, ExecutionStrategy mutationStrategy, Map<String, FragmentDefinition> fragmentsByName, OperationDefinition operationDefinition, Map<String, Object> variables, Object root) {
+    public ExecutionContext(Instrumentation instrumentation, ExecutionId executionId, GraphQLSchema graphQLSchema, ExecutionStrategy queryStrategy, ExecutionStrategy mutationStrategy, Map<String, FragmentDefinition> fragmentsByName, OperationDefinition operationDefinition, Map<String, Object> variables, Object root) {
         this.graphQLSchema = graphQLSchema;
+        this.executionId = executionId;
         this.queryStrategy = queryStrategy;
         this.mutationStrategy = mutationStrategy;
         this.fragmentsByName = fragmentsByName;
         this.operationDefinition = operationDefinition;
         this.variables = variables;
         this.root = root;
+        this.instrumentation = instrumentation;
+    }
+
+
+    public ExecutionId getExecutionId() {
+        return executionId;
+    }
+
+    public Instrumentation getInstrumentation() {
+        return instrumentation;
     }
 
     public GraphQLSchema getGraphQLSchema() {
@@ -47,8 +62,9 @@ public class ExecutionContext {
         return variables;
     }
 
-    public Object getRoot() {
-        return root;
+    public <T> T getRoot() {
+        //noinspection unchecked
+        return (T) root;
     }
 
     public FragmentDefinition getFragment(String name) {

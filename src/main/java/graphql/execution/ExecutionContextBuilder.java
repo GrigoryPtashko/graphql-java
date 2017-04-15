@@ -1,6 +1,7 @@
 package graphql.execution;
 
 import graphql.GraphQLException;
+import graphql.execution.instrumentation.Instrumentation;
 import graphql.language.Definition;
 import graphql.language.Document;
 import graphql.language.FragmentDefinition;
@@ -10,17 +11,31 @@ import graphql.schema.GraphQLSchema;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static graphql.Assert.assertNotNull;
+
 public class ExecutionContextBuilder {
 
     private ValuesResolver valuesResolver;
+    private Instrumentation instrumentation;
+    private ExecutionId executionId;
 
-    public ExecutionContextBuilder(ValuesResolver valuesResolver) {
+    public ExecutionContextBuilder(ValuesResolver valuesResolver, Instrumentation instrumentation) {
         this.valuesResolver = valuesResolver;
+        this.instrumentation = instrumentation;
+    }
+
+
+    public ExecutionContextBuilder executionId(ExecutionId executionId) {
+        this.executionId = executionId;
+        return this;
     }
 
     public ExecutionContext build(GraphQLSchema graphQLSchema, ExecutionStrategy queryStrategy, ExecutionStrategy mutationStrategy, Object root, Document document, String operationName, Map<String, Object> args) {
-        Map<String, FragmentDefinition> fragmentsByName = new LinkedHashMap<String, FragmentDefinition>();
-        Map<String, OperationDefinition> operationsByName = new LinkedHashMap<String, OperationDefinition>();
+        // preconditions
+        assertNotNull(executionId, "You must provide a query identifier");
+
+        Map<String, FragmentDefinition> fragmentsByName = new LinkedHashMap<>();
+        Map<String, OperationDefinition> operationsByName = new LinkedHashMap<>();
 
         for (Definition definition : document.getDefinitions()) {
             if (definition instanceof OperationDefinition) {
@@ -48,6 +63,8 @@ public class ExecutionContextBuilder {
         Map<String, Object> variableValues = valuesResolver.getVariableValues(graphQLSchema, operation.getVariableDefinitions(), args);
 
         return new ExecutionContext(
+                instrumentation,
+                executionId,
                 graphQLSchema,
                 queryStrategy,
                 mutationStrategy,

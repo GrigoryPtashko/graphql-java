@@ -3,4 +3,5 @@
 .gradle
 build
 _site
+generated-src/
 .svn

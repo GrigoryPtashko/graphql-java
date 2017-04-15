@@ -1,31 +1,40 @@
 package graphql.schema;
 
+import graphql.AssertException;
+import graphql.language.ObjectTypeDefinition;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import graphql.AssertException;
-
 import static graphql.Assert.assertNotNull;
+import static graphql.Assert.assertValidName;
 
 public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQLFieldsContainer, GraphQLCompositeType, GraphQLUnmodifiedType, GraphQLNullableType {
 
     private final String name;
     private final String description;
-    private final Map<String, GraphQLFieldDefinition> fieldDefinitionsByName = new LinkedHashMap<String, GraphQLFieldDefinition>();
-    private final List<GraphQLInterfaceType> interfaces = new ArrayList<GraphQLInterfaceType>();
+    private final Map<String, GraphQLFieldDefinition> fieldDefinitionsByName = new LinkedHashMap<>();
+    private final List<GraphQLInterfaceType> interfaces = new ArrayList<>();
+    private final ObjectTypeDefinition definition;
 
     public GraphQLObjectType(String name, String description, List<GraphQLFieldDefinition> fieldDefinitions,
                              List<GraphQLInterfaceType> interfaces) {
-        assertNotNull(name, "name can't be null");
+        this(name, description, fieldDefinitions, interfaces, null);
+    }
+
+    public GraphQLObjectType(String name, String description, List<GraphQLFieldDefinition> fieldDefinitions,
+                             List<GraphQLInterfaceType> interfaces, ObjectTypeDefinition definition) {
+        assertValidName(name);
         assertNotNull(fieldDefinitions, "fieldDefinitions can't be null");
         assertNotNull(interfaces, "interfaces can't be null");
         assertNotNull(interfaces, "unresolvedInterfaces can't be null");
         this.name = name;
         this.description = description;
         this.interfaces.addAll(interfaces);
+        this.definition = definition;
         buildDefinitionMap(fieldDefinitions);
     }
 
@@ -53,12 +62,12 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
 
 
     public List<GraphQLFieldDefinition> getFieldDefinitions() {
-        return new ArrayList<GraphQLFieldDefinition>(fieldDefinitionsByName.values());
+        return new ArrayList<>(fieldDefinitionsByName.values());
     }
 
 
     public List<GraphQLInterfaceType> getInterfaces() {
-        return new ArrayList<GraphQLInterfaceType>(interfaces);
+        return new ArrayList<>(interfaces);
     }
 
     public String getDescription() {
@@ -70,6 +79,9 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
         return name;
     }
 
+    public ObjectTypeDefinition getDefinition() {
+        return definition;
+    }
 
     @Override
     public String toString() {
@@ -88,12 +100,13 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
     public static Reference reference(String name) {
         return new Reference(name);
     }
-    
+
     public static class Builder {
         private String name;
         private String description;
-        private List<GraphQLFieldDefinition> fieldDefinitions = new ArrayList<GraphQLFieldDefinition>();
-        private List<GraphQLInterfaceType> interfaces = new ArrayList<GraphQLInterfaceType>();
+        private List<GraphQLFieldDefinition> fieldDefinitions = new ArrayList<>();
+        private List<GraphQLInterfaceType> interfaces = new ArrayList<>();
+        private ObjectTypeDefinition definition;
 
         public Builder name(String name) {
             this.name = name;
@@ -102,6 +115,11 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
 
         public Builder description(String description) {
             this.description = description;
+            return this;
+        }
+
+        public Builder definition(ObjectTypeDefinition definition) {
+            this.definition = definition;
             return this;
         }
 
@@ -162,14 +180,14 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
         }
 
         public GraphQLObjectType build() {
-            return new GraphQLObjectType(name, description, fieldDefinitions, interfaces);
+            return new GraphQLObjectType(name, description, fieldDefinitions, interfaces, definition);
         }
 
     }
 
     private static class Reference extends GraphQLObjectType implements TypeReference {
         private Reference(String name) {
-            super(name, "", Collections.<GraphQLFieldDefinition>emptyList(), Collections.<GraphQLInterfaceType>emptyList());
+            super(name, "", Collections.emptyList(), Collections.emptyList(), null);
         }
     }
 }

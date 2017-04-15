@@ -28,7 +28,7 @@ class GraphQLTest extends Specification {
         ).build()
 
         when:
-        def result = new GraphQL(schema).execute('{ hello }').data
+        def result = GraphQL.newGraphQL(schema).build().execute('{ hello }').data
 
         then:
         result == [hello: 'world']
@@ -59,10 +59,10 @@ class GraphQLTest extends Specification {
                         .name("RootQueryType")
                         .field(simpsonField)
                         .build()
-        ).build();
+        ).build()
 
         when:
-        def result = new GraphQL(graphQLSchema).execute('{ simpson { id, name } }').data
+        def result = GraphQL.newGraphQL(graphQLSchema).build().execute('{ simpson { id, name } }').data
 
         then:
         result == [simpson: [id: '123', name: 'homer']]
@@ -83,7 +83,7 @@ class GraphQLTest extends Specification {
         ).build()
 
         when:
-        def errors = new GraphQL(schema).execute('{ hello(arg:11) }').errors
+        def errors = GraphQL.newGraphQL(schema).build().execute('{ hello(arg:11) }').errors
 
         then:
         errors.size() == 1
@@ -98,7 +98,7 @@ class GraphQLTest extends Specification {
         ).build()
 
         when:
-        def errors = new GraphQL(schema).execute('{ hello(() }').errors
+        def errors = GraphQL.newGraphQL(schema).build().execute('{ hello(() }').errors
 
         then:
         errors.size() == 1
@@ -115,7 +115,7 @@ class GraphQLTest extends Specification {
         ).build()
 
         when:
-        def errors = new GraphQL(schema).execute('{ hello[](() }').errors
+        def errors = GraphQL.newGraphQL(schema).build().execute('{ hello[](() }').errors
 
         then:
         errors.size() == 1
@@ -138,7 +138,7 @@ class GraphQLTest extends Specification {
         ).build()
 
         when:
-        def errors = new GraphQL(schema).execute('{ field }').errors
+        def errors = GraphQL.newGraphQL(schema).build().execute('{ field }').errors
 
         then:
         errors.size() == 1
@@ -154,16 +154,16 @@ class GraphQLTest extends Specification {
         set.add("Two")
 
         def schema = GraphQLSchema.newSchema()
-          .query(GraphQLObjectType.newObject()
-            .name("QueryType")
-            .field(GraphQLFieldDefinition.newFieldDefinition()
-              .name("set")
-              .type(new GraphQLList(GraphQLString))
-              .dataFetcher({ set })))
-          .build()
+                .query(GraphQLObjectType.newObject()
+                .name("QueryType")
+                .field(GraphQLFieldDefinition.newFieldDefinition()
+                .name("set")
+                .type(new GraphQLList(GraphQLString))
+                .dataFetcher({ set })))
+                .build()
 
         when:
-        def data = new GraphQL(schema).execute("query { set }").data
+        def data = GraphQL.newGraphQL(schema).build().execute("query { set }").data
 
         then:
         data == [set: ['One', 'Two']]
@@ -188,7 +188,7 @@ class GraphQLTest extends Specification {
         def expected = [field2: 'value2']
 
         when:
-        def result = new GraphQL(schema).execute(query, 'Query2', null, [:])
+        def result = GraphQL.newGraphQL(schema).build().execute(query, 'Query2', null, [:])
 
         then:
         result.data == expected
@@ -203,7 +203,7 @@ class GraphQLTest extends Specification {
                         .name("RootQueryType")
                         .field(newFieldDefinition().name("name").type(GraphQLString))
         )
-        .build()
+                .build()
 
         def query = """
         query Query1 { name }
@@ -211,9 +211,26 @@ class GraphQLTest extends Specification {
         """
 
         when:
-        new GraphQL(schema).execute(query)
+        GraphQL.newGraphQL(schema).build().execute(query)
 
         then:
         thrown(GraphQLException)
+    }
+
+    def "null mutation type does not throw an npe re: #345 but returns and error"() {
+        given:
+
+        GraphQLSchema schema = newSchema().query(
+                newObject()
+                        .name("Query")
+        )
+                .build()
+
+        when:
+        def result = new GraphQL(schema).execute("mutation { doesNotExist }");
+
+        then:
+        result.errors.size() == 1
+        result.errors[0].class == MutationNotSupportedError
     }
 }
