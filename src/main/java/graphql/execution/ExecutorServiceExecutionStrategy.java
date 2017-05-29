@@ -3,8 +3,8 @@ package graphql.execution;
 import graphql.ExecutionResult;
 import graphql.ExecutionResultImpl;
 import graphql.GraphQLException;
+import graphql.PublicApi;
 import graphql.language.Field;
-import graphql.schema.GraphQLObjectType;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,7 +17,7 @@ import java.util.concurrent.Future;
 /**
  * <p>ExecutorServiceExecutionStrategy uses an {@link ExecutorService} to parallelize the resolve.</p>
  * 
- * Due to the nature of {@link #execute(ExecutionContext, GraphQLObjectType, Object, Map)} implementation, {@link ExecutorService}
+ * Due to the nature of {@link #execute(ExecutionContext, ExecutionParameters)}  implementation, {@link ExecutorService}
  * MUST have the following 2 characteristics:
  * <ul>
  * <li>1. The underlying {@link java.util.concurrent.ThreadPoolExecutor} MUST have a reasonable {@code maximumPoolSize}
@@ -28,6 +28,7 @@ import java.util.concurrent.Future;
  * 
  * See {@code graphql.execution.ExecutorServiceExecutionStrategyTest} for example usage.
  */
+@PublicApi
 public class ExecutorServiceExecutionStrategy extends ExecutionStrategy {
 
     ExecutorService executorService;
@@ -37,20 +38,15 @@ public class ExecutorServiceExecutionStrategy extends ExecutionStrategy {
     }
 
     @Override
-    public ExecutionResult execute(final ExecutionContext executionContext, final GraphQLObjectType parentType, final Object source, final Map<String, List<Field>> fields) {
+    public ExecutionResult execute(final ExecutionContext executionContext, final ExecutionParameters parameters) {
         if (executorService == null)
-            return new SimpleExecutionStrategy().execute(executionContext, parentType, source, fields);
+            return new SimpleExecutionStrategy().execute(executionContext,parameters);
 
+        Map<String, List<Field>> fields = parameters.fields();
         Map<String, Future<ExecutionResult>> futures = new LinkedHashMap<>();
         for (String fieldName : fields.keySet()) {
             final List<Field> fieldList = fields.get(fieldName);
-            Callable<ExecutionResult> resolveField = new Callable<ExecutionResult>() {
-                @Override
-                public ExecutionResult call() throws Exception {
-                    return resolveField(executionContext, parentType, source, fieldList);
-
-                }
-            };
+            Callable<ExecutionResult> resolveField = () -> resolveField(executionContext, parameters, fieldList);
             futures.put(fieldName, executorService.submit(resolveField));
         }
         try {
@@ -61,9 +57,7 @@ public class ExecutorServiceExecutionStrategy extends ExecutionStrategy {
                 results.put(fieldName, executionResult != null ? executionResult.getData() : null);
             }
             return new ExecutionResultImpl(results, executionContext.getErrors());
-        } catch (InterruptedException e) {
-            throw new GraphQLException(e);
-        } catch (ExecutionException e) {
+        } catch (InterruptedException | ExecutionException e) {
             throw new GraphQLException(e);
         }
     }

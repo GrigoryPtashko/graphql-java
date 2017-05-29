@@ -5,9 +5,13 @@ import graphql.schema.*
 import graphql.validation.ValidationErrorType
 import spock.lang.Specification
 
+import static graphql.Scalars.GraphQLInt
 import static graphql.Scalars.GraphQLString
 import static graphql.schema.GraphQLArgument.newArgument
 import static graphql.schema.GraphQLFieldDefinition.newFieldDefinition
+import static graphql.schema.GraphQLInputObjectField.newInputObjectField
+import static graphql.schema.GraphQLInputObjectType.newInputObject
+import static graphql.schema.GraphQLNonNull.nonNull
 import static graphql.schema.GraphQLObjectType.newObject
 import static graphql.schema.GraphQLSchema.newSchema
 
@@ -153,10 +157,10 @@ class GraphQLTest extends Specification {
         set.add("One")
         set.add("Two")
 
-        def schema = GraphQLSchema.newSchema()
-                .query(GraphQLObjectType.newObject()
+        def schema = newSchema()
+                .query(newObject()
                 .name("QueryType")
-                .field(GraphQLFieldDefinition.newFieldDefinition()
+                .field(newFieldDefinition()
                 .name("set")
                 .type(new GraphQLList(GraphQLString))
                 .dataFetcher({ set })))
@@ -227,10 +231,195 @@ class GraphQLTest extends Specification {
                 .build()
 
         when:
-        def result = new GraphQL(schema).execute("mutation { doesNotExist }");
+        def result = new GraphQL(schema).execute("mutation { doesNotExist }")
 
         then:
         result.errors.size() == 1
         result.errors[0].class == MutationNotSupportedError
+    }
+
+
+    class ParentTypeImplementation {
+        String nullChild = null
+        String nonNullChild = "not null"
+    }
+
+    def "#268 - null child field values are allowed in nullable parent type"() {
+
+        // see https://github.com/graphql-java/graphql-java/issues/268
+
+        given:
+
+
+        GraphQLOutputType parentType = newObject()
+                .name("currentType")
+                .field(newFieldDefinition().name("nullChild")
+                .type(nonNull(GraphQLString)))
+                .field(newFieldDefinition().name("nonNullChild")
+                .type(nonNull(GraphQLString)))
+                .build()
+
+        GraphQLSchema schema = newSchema().query(
+                newObject()
+                        .name("RootQueryType")
+                        .field(newFieldDefinition()
+                        .name("parent")
+                        .type(parentType) // nullable parent
+                        .dataFetcher({ env -> new ParentTypeImplementation() })
+
+                ))
+                .build()
+
+        def query = """
+        query { 
+            parent {
+                nonNullChild
+                nullChild
+            }
+        }
+        """
+
+        when:
+        def result = GraphQL.newGraphQL(schema).build().execute(query)
+
+        then:
+
+        result.errors.size() == 1
+        result.data["parent"] == null
+    }
+
+    def "#268 - null child field values are NOT allowed in non nullable parent types"() {
+
+        // see https://github.com/graphql-java/graphql-java/issues/268
+
+        given:
+
+
+        GraphQLOutputType parentType = newObject()
+                .name("currentType")
+                .field(newFieldDefinition().name("nullChild")
+                .type(nonNull(GraphQLString)))
+                .field(newFieldDefinition().name("nonNullChild")
+                .type(nonNull(GraphQLString)))
+                .build()
+
+        GraphQLSchema schema = newSchema().query(
+                newObject()
+                        .name("RootQueryType")
+                        .field(
+                        newFieldDefinition()
+                                .name("parent")
+                                .type(nonNull(parentType)) // non nullable parent
+                                .dataFetcher({ env -> new ParentTypeImplementation() })
+
+                ))
+                .build()
+
+        def query = """
+        query { 
+            parent {
+                nonNullChild
+                nullChild
+            }
+        }
+        """
+
+        when:
+        def result = GraphQL.newGraphQL(schema).build().execute(query)
+
+        then:
+
+        result.errors.size() == 1
+        result.data == null
+    }
+
+
+    def "query with int literal too large"() {
+        given:
+        GraphQLSchema schema = newSchema().query(
+                newObject()
+                        .name("QueryType")
+                        .field(
+                        newFieldDefinition()
+                                .name("foo")
+                                .type(GraphQLInt)
+                                .argument(newArgument().name("bar").type(GraphQLInt).build())
+                                .dataFetcher({ return it.getArgument("bar") })
+                ))
+                .build()
+        def query = "{foo(bar: 12345678910)}"
+        when:
+        def result = GraphQL.newGraphQL(schema).build().execute(query)
+
+        then:
+        result.errors.size() == 1
+        result.errors[0].description.contains("has wrong type")
+    }
+
+    def "query with missing argument results in arguments map with value null"() {
+        given:
+        def dataFetcher = Mock(DataFetcher)
+        GraphQLSchema schema = newSchema().query(
+                newObject()
+                        .name("QueryType")
+                        .field(
+                        newFieldDefinition()
+                                .name("foo")
+                                .type(GraphQLInt)
+                                .argument(newArgument().name("bar").type(GraphQLInt).build())
+                                .dataFetcher(dataFetcher)
+                ))
+                .build()
+        def query = "{foo}"
+        when:
+        GraphQL.newGraphQL(schema).build().execute(query)
+
+        then:
+        1 * dataFetcher.get(_) >> {
+            DataFetchingEnvironment env ->
+                assert env.arguments.size() == 0
+                assert env.arguments['bar'] == null
+        }
+    }
+
+    def "query with missing key in an input object result in a empty map"() {
+        given:
+        def dataFetcher = Mock(DataFetcher)
+        def inputObject = newInputObject().name("bar")
+                .field(newInputObjectField().name("someKey").type(GraphQLString).build())
+                .field(newInputObjectField().name("otherKey").type(GraphQLString).build()).build()
+        GraphQLSchema schema = newSchema().query(
+                newObject()
+                        .name("QueryType")
+                        .field(
+                        newFieldDefinition()
+                                .name("foo")
+                                .type(GraphQLInt)
+                                .argument(newArgument().name("bar").type(inputObject).build())
+                                .dataFetcher(dataFetcher)
+                ))
+                .build()
+        def query = "{foo(bar: {someKey: \"value\"})}"
+        when:
+        def result = GraphQL.newGraphQL(schema).build().execute(query)
+
+        then:
+        result.errors.size() == 0
+        1 * dataFetcher.get(_) >> {
+            DataFetchingEnvironment env ->
+                assert env.arguments.size() == 1
+                assert env.arguments["bar"] instanceof Map
+                assert env.arguments['bar']['someKey'] == 'value'
+                assert env.arguments['bar']['otherKey'] == null
+        }
+    }
+
+    def "#448 invalid trailing braces are handled correctly"() {
+        when:
+        def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute("{hero { name }} }")
+
+        then:
+        !result.errors.isEmpty()
+        result.errors[0].errorType == ErrorType.InvalidSyntax
     }
 }

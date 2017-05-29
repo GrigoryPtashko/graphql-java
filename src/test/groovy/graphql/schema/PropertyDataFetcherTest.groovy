@@ -7,11 +7,15 @@ import spock.lang.Specification
 class PropertyDataFetcherTest extends Specification {
 
     def env(obj) {
-        return new DataFetchingEnvironmentImpl(obj,
+        return new DataFetchingEnvironmentImpl(
+                obj,
                 Collections.emptyMap(),
-                null,
                 Collections.emptyList(),
                 null,
+                null,
+                null,
+                null,
+                Collections.emptyMap(),
                 null,
                 null
         )

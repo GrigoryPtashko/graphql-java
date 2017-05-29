@@ -1,6 +1,9 @@
 package graphql.schema;
 
+import graphql.PublicApi;
+import graphql.execution.ExecutionId;
 import graphql.language.Field;
+import graphql.language.FragmentDefinition;
 
 import java.util.List;
 import java.util.Map;
@@ -8,6 +11,7 @@ import java.util.Map;
 /**
  * A DataFetchingEnvironment instance of passed to a {@link DataFetcher} as an execution context parameter
  */
+@PublicApi
 public interface DataFetchingEnvironment {
     /**
      * @param <T> you decide what type it is
@@ -69,4 +73,19 @@ public interface DataFetchingEnvironment {
      * @return the underlying graphql schema
      */
     GraphQLSchema getGraphQLSchema();
+
+    /**
+     * @return the {@link FragmentDefinition} map for the current operation
+     */
+    Map<String, FragmentDefinition> getFragmentsByName();
+
+    /**
+     * @return the {@link ExecutionId} for the current operation
+     */
+    ExecutionId getExecutionId();
+
+    /**
+     * @return the {@link DataFetchingFieldSelectionSet} for the current operation
+     */
+    DataFetchingFieldSelectionSet getSelectionSet();
 }

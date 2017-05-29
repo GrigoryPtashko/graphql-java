@@ -1,10 +1,18 @@
 package readme;
 
-import graphql.GarfieldSchema;
 import graphql.GraphQL;
+import graphql.Scalars;
+import graphql.StarWarsData;
 import graphql.StarWarsSchema;
+import graphql.TypeResolutionEnvironment;
 import graphql.execution.ExecutorServiceExecutionStrategy;
 import graphql.execution.SimpleExecutionStrategy;
+import graphql.language.Directive;
+import graphql.language.FieldDefinition;
+import graphql.language.InterfaceTypeDefinition;
+import graphql.language.TypeDefinition;
+import graphql.language.UnionTypeDefinition;
+import graphql.schema.Coercing;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
 import graphql.schema.GraphQLEnumType;
@@ -13,16 +21,28 @@ import graphql.schema.GraphQLInterfaceType;
 import graphql.schema.GraphQLList;
 import graphql.schema.GraphQLNonNull;
 import graphql.schema.GraphQLObjectType;
+import graphql.schema.GraphQLScalarType;
 import graphql.schema.GraphQLSchema;
 import graphql.schema.GraphQLTypeReference;
 import graphql.schema.GraphQLUnionType;
+import graphql.schema.StaticDataFetcher;
 import graphql.schema.TypeResolver;
+import graphql.schema.idl.RuntimeWiring;
+import graphql.schema.idl.SchemaGenerator;
+import graphql.schema.idl.SchemaParser;
+import graphql.schema.idl.TypeDefinitionRegistry;
+import graphql.schema.idl.WiringFactory;
 
+import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static graphql.GarfieldSchema.Cat;
 import static graphql.GarfieldSchema.CatType;
+import static graphql.GarfieldSchema.Dog;
 import static graphql.GarfieldSchema.DogType;
 import static graphql.MutationSchema.mutationType;
 import static graphql.Scalars.GraphQLBoolean;
@@ -38,12 +58,22 @@ import static graphql.schema.GraphQLList.list;
 import static graphql.schema.GraphQLNonNull.nonNull;
 import static graphql.schema.GraphQLObjectType.newObject;
 import static graphql.schema.GraphQLUnionType.newUnionType;
+import static graphql.schema.idl.TypeRuntimeWiring.newTypeWiring;
 
 /**
  * This class holds readme examples so they stay correct and can be compiled.  If this
- * does not compile, chances are the readme examples are now wrong.
+ * does not parse, chances are the readme examples are now wrong.
+ *
+ * You should place these examples into the README.next.md and NOT the main README.md.  This allows
+ * 'master' to progress yet shows consumers the released information about the project.
  */
+@SuppressWarnings({"unused", "Convert2Lambda", "UnnecessaryLocalVariable", "ConstantConditions", "SameParameterValue"})
 public class ReadmeExamples {
+
+
+    public Map<String, Object> getInputFromJSON() {
+        return new HashMap<>();
+    }
 
     class Foo {
     }
@@ -118,11 +148,11 @@ public class ReadmeExamples {
                 .possibleType(DogType)
                 .typeResolver(new TypeResolver() {
                     @Override
-                    public GraphQLObjectType getType(Object object) {
-                        if (object instanceof GarfieldSchema.Cat) {
+                    public GraphQLObjectType getType(TypeResolutionEnvironment env) {
+                        if (env.getObject() instanceof Cat) {
                             return CatType;
                         }
-                        if (object instanceof GarfieldSchema.Dog) {
+                        if (env.getObject() instanceof Dog) {
                             return DogType;
                         }
                         return null;
@@ -148,12 +178,13 @@ public class ReadmeExamples {
                 2, /* core pool size 2 thread */
                 2, /* max pool size 2 thread */
                 30, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(),
+                new LinkedBlockingQueue<>(),
                 new ThreadPoolExecutor.CallerRunsPolicy());
 
         GraphQL graphQL = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema)
                 .queryExecutionStrategy(new ExecutorServiceExecutionStrategy(threadPoolExecutor))
                 .mutationExecutionStrategy(new SimpleExecutionStrategy())
+                .subscriptionExecutionStrategy(new SimpleExecutionStrategy())
                 .build();
 
     }
@@ -180,8 +211,234 @@ public class ReadmeExamples {
 
     }
 
+    class Review {
+
+    }
+
+    class Episode {
+
+    }
+
+    class ReviewInput {
+
+    }
+
+    class ReviewStore {
+        Review update(Episode episode, ReviewInput reviewInput) {
+            return null;
+        }
+    }
+
+    private ReviewStore reviewStore() {
+        return new ReviewStore();
+    }
+
+    void mutationExample() {
+
+        GraphQLInputObjectType episodeType = GraphQLInputObjectType.newInputObject()
+                .name("Episode")
+                .field(newInputObjectField()
+                        .name("episodeNumber")
+                        .type(Scalars.GraphQLInt))
+                .build();
+
+        GraphQLInputObjectType reviewInputType = GraphQLInputObjectType.newInputObject()
+                .name("ReviewInput")
+                .field(newInputObjectField()
+                        .name("stars")
+                        .type(Scalars.GraphQLString)
+                        .name("commentary")
+                        .type(Scalars.GraphQLString))
+                .build();
+
+        GraphQLObjectType reviewType = newObject()
+                .name("Review")
+                .field(newFieldDefinition()
+                        .name("stars")
+                        .type(GraphQLString))
+                .field(newFieldDefinition()
+                        .name("commentary")
+                        .type(GraphQLString))
+                .build();
+
+        GraphQLObjectType createReviewForEpisodeMutation = newObject()
+                .name("CreateReviewForEpisodeMutation")
+                .field(newFieldDefinition()
+                        .name("createReview")
+                        .type(reviewType)
+                        .argument(newArgument()
+                                .name("episode")
+                                .type(episodeType)
+                        )
+                        .argument(newArgument()
+                                .name("review")
+                                .type(reviewInputType)
+                        )
+                        .dataFetcher(mutationDataFetcher())
+                )
+                .build();
+
+        GraphQLSchema schema = GraphQLSchema.newSchema()
+                .query(queryType)
+                .mutation(createReviewForEpisodeMutation)
+                .build();
+    }
+
+    private DataFetcher mutationDataFetcher() {
+        return new DataFetcher() {
+            @Override
+            public Review get(DataFetchingEnvironment environment) {
+                Episode episode = environment.getArgument("episode");
+                ReviewInput review = environment.getArgument("review");
+
+                // make a call to your store to mutate your database
+                Review updatedReview = reviewStore().update(episode, review);
+
+                // this returns a new view of the data
+                return updatedReview;
+            }
+        };
+    }
+
+    private Object context() {
+        return null;
+    }
+
     private Foo perhapsFromDatabase() {
         return new Foo();
+    }
+
+    void parsedSchemaExample() {
+
+        SchemaParser schemaParser = new SchemaParser();
+        SchemaGenerator schemaGenerator = new SchemaGenerator();
+
+        File schemaFile = loadSchema("starWarsSchema.graphqls");
+
+        TypeDefinitionRegistry typeRegistry = schemaParser.parse(schemaFile);
+        RuntimeWiring wiring = buildRuntimeWiring();
+        GraphQLSchema graphQLSchema = schemaGenerator.makeExecutableSchema(typeRegistry, wiring);
+    }
+
+    void parsedSplitSchemaExample() {
+
+        SchemaParser schemaParser = new SchemaParser();
+        SchemaGenerator schemaGenerator = new SchemaGenerator();
+
+        File schemaFile1 = loadSchema("starWarsSchemaPart1.graphqls");
+        File schemaFile2 = loadSchema("starWarsSchemaPart2.graphqls");
+        File schemaFile3 = loadSchema("starWarsSchemaPart3.graphqls");
+
+        TypeDefinitionRegistry typeRegistry = new TypeDefinitionRegistry();
+
+        // each compiled registry is merged into the main registry
+        typeRegistry.merge(schemaParser.parse(schemaFile1));
+        typeRegistry.merge(schemaParser.parse(schemaFile2));
+        typeRegistry.merge(schemaParser.parse(schemaFile3));
+
+        GraphQLSchema graphQLSchema = schemaGenerator.makeExecutableSchema(typeRegistry, buildRuntimeWiring());
+    }
+
+
+    RuntimeWiring buildRuntimeWiring() {
+        return RuntimeWiring.newRuntimeWiring()
+                .scalar(CustomScalar)
+                // this uses builder function lambda syntax
+                .type("QueryType", typeWiring -> typeWiring
+                        .dataFetcher("hero", new StaticDataFetcher(StarWarsData.getArtoo()))
+                        .dataFetcher("human", StarWarsData.getHumanDataFetcher())
+                        .dataFetcher("droid", StarWarsData.getDroidDataFetcher())
+                )
+                .type("Human", typeWiring -> typeWiring
+                        .dataFetcher("friends", StarWarsData.getFriendsDataFetcher())
+                )
+                // you can use builder syntax if you don't like the lambda syntax
+                .type(newTypeWiring("Droid")
+                        .dataFetcher("friends", StarWarsData.getFriendsDataFetcher())
+                )
+                // or full builder syntax if that takes your fancy where you call .build()
+                .type(
+                        newTypeWiring("Character")
+                                .typeResolver(StarWarsData.getCharacterTypeResolver())
+                                .build()
+                )
+                .build();
+    }
+
+    RuntimeWiring buildDynamicRuntimeWiring() {
+        WiringFactory dynamicWiringFactory = new WiringFactory() {
+            @Override
+            public boolean providesTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition definition) {
+                return getDirective(definition,"specialMarker") != null;
+            }
+
+            @Override
+            public boolean providesTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition definition) {
+                return getDirective(definition, "specialMarker") != null;
+            }
+
+            @Override
+            public TypeResolver getTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition definition) {
+                Directive directive = getDirective(definition, "specialMarker");
+                return createTypeResolver(definition, directive);
+            }
+
+            @Override
+            public TypeResolver getTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition definition) {
+                Directive directive  = getDirective(definition,"specialMarker");
+                return createTypeResolver(definition,directive);
+            }
+
+            @Override
+            public boolean providesDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
+                return getDirective(definition,"dataFetcher") != null;
+            }
+
+            @Override
+            public DataFetcher getDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
+                Directive directive = getDirective(definition, "dataFetcher");
+                return createDataFetcher(definition,directive);
+            }
+        };
+        return RuntimeWiring.newRuntimeWiring()
+                .wiringFactory(dynamicWiringFactory).build();
+    }
+
+    private DataFetcher createDataFetcher(FieldDefinition definition, Directive directive) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    private TypeResolver createTypeResolver(TypeDefinition definition, Directive directive) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    private Directive getDirective(TypeDefinition definition, String type) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+    private Directive getDirective(FieldDefinition fieldDefintion, String type) {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+
+    public static GraphQLScalarType CustomScalar = new GraphQLScalarType("Custom", "Custom Scalar", new Coercing<Integer, Integer>() {
+        @Override
+        public Integer serialize(Object input) {
+            throw new UnsupportedOperationException("Not implemented");
+        }
+
+        @Override
+        public Integer parseValue(Object input) {
+            throw new UnsupportedOperationException("Not implemented");
+        }
+
+        @Override
+        public Integer parseLiteral(Object input) {
+            throw new UnsupportedOperationException("Not implemented");
+        }
+    });
+
+    private File loadSchema(String s) {
+        return null;
     }
 
 }

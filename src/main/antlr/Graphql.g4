@@ -18,7 +18,7 @@ operationDefinition:
 selectionSet |
 operationType  name? variableDefinitions? directives? selectionSet;
 
-operationType : MUTATION | QUERY;
+operationType : SUBSCRIPTION | MUTATION | QUERY;
 
 variableDefinitions : '(' variableDefinition+ ')';
 
@@ -59,13 +59,14 @@ typeCondition : 'on' typeName;
 
 // Value
 
-name: NAME | FRAGMENT | QUERY | MUTATION | SCHEMA | SCALAR | TYPE | INTERFACE | IMPLEMENTS | ENUM | UNION | INPUT | EXTEND | DIRECTIVE;
+name: NAME | FRAGMENT | QUERY | MUTATION | SUBSCRIPTION | SCHEMA | SCALAR | TYPE | INTERFACE | IMPLEMENTS | ENUM | UNION | INPUT | EXTEND | DIRECTIVE;
 
 value :
 IntValue |
 FloatValue |
 StringValue |
 BooleanValue |
+NullValue |
 enumValue |
 arrayValue |
 objectValue;
@@ -76,6 +77,7 @@ IntValue |
 FloatValue |
 StringValue |
 BooleanValue |
+NullValue |
 enumValue |
 arrayValueWithVariable |
 objectValueWithVariable;
@@ -176,9 +178,12 @@ directiveLocations '|' directiveLocation
 
 BooleanValue: 'true' | 'false';
 
+NullValue: 'null';
+
 FRAGMENT: 'fragment';
 QUERY: 'query';
 MUTATION: 'mutation';
+SUBSCRIPTION: 'subscription';
 SCHEMA: 'schema';
 SCALAR: 'scalar';
 TYPE: 'type';

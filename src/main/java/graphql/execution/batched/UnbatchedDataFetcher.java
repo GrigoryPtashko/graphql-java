@@ -18,7 +18,6 @@ public class UnbatchedDataFetcher implements BatchedDataFetcher {
     private final DataFetcher delegate;
 
     public UnbatchedDataFetcher(DataFetcher delegate) {
-        assert !(delegate instanceof BatchedDataFetcher);
         this.delegate = delegate;
     }
 
@@ -35,7 +34,10 @@ public class UnbatchedDataFetcher implements BatchedDataFetcher {
                     environment.getFields(),
                     environment.getFieldType(),
                     environment.getParentType(),
-                    environment.getGraphQLSchema());
+                    environment.getGraphQLSchema(),
+                    environment.getFragmentsByName(),
+                    environment.getExecutionId(),
+                    environment.getSelectionSet());
             results.add(delegate.get(singleEnv));
         }
         return results;

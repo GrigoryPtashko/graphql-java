@@ -1,7 +1,9 @@
 package graphql.schema;
 
 
+import graphql.execution.ExecutionId;
 import graphql.language.Field;
+import graphql.language.FragmentDefinition;
 
 import java.util.List;
 import java.util.Map;
@@ -15,8 +17,11 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     private final GraphQLOutputType fieldType;
     private final GraphQLType parentType;
     private final GraphQLSchema graphQLSchema;
+    private final Map<String, FragmentDefinition> fragmentsByName;
+    private final ExecutionId executionId;
+    private final DataFetchingFieldSelectionSet selectionSet;
 
-    public DataFetchingEnvironmentImpl(Object source, Map<String, Object> arguments, Object context, List<Field> fields, GraphQLOutputType fieldType, GraphQLType parentType, GraphQLSchema graphQLSchema) {
+    public DataFetchingEnvironmentImpl(Object source, Map<String, Object> arguments, Object context, List<Field> fields, GraphQLOutputType fieldType, GraphQLType parentType, GraphQLSchema graphQLSchema, Map<String, FragmentDefinition> fragmentsByName, ExecutionId executionId, DataFetchingFieldSelectionSet selectionSet) {
         this.source = source;
         this.arguments = arguments;
         this.context = context;
@@ -24,6 +29,9 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
         this.fieldType = fieldType;
         this.parentType = parentType;
         this.graphQLSchema = graphQLSchema;
+        this.fragmentsByName = fragmentsByName;
+        this.executionId = executionId;
+        this.selectionSet = selectionSet;
     }
 
     @Override
@@ -47,7 +55,7 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     }
 
     @Override
-    public <T> T  getContext() {
+    public <T> T getContext() {
         return (T) context;
     }
 
@@ -69,5 +77,20 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     @Override
     public GraphQLSchema getGraphQLSchema() {
         return graphQLSchema;
+    }
+
+    @Override
+    public Map<String, FragmentDefinition> getFragmentsByName() {
+        return fragmentsByName;
+    }
+
+    @Override
+    public ExecutionId getExecutionId() {
+        return executionId;
+    }
+
+    @Override
+    public DataFetchingFieldSelectionSet getSelectionSet() {
+        return selectionSet;
     }
 }
