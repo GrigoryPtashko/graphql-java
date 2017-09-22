@@ -1,54 +1,38 @@
 package graphql.relay;
 
-import java.util.ArrayList;
+import graphql.PublicApi;
+
 import java.util.Collections;
 import java.util.List;
 
+import static graphql.Assert.assertNotNull;
+import static java.util.Collections.unmodifiableList;
+
+/**
+ * A default implementation of {@link graphql.relay.Connection}
+ */
+@PublicApi
 public class DefaultConnection<T> implements Connection<T> {
 
-    private List<Edge<T>> edges = new ArrayList<>();
-
-    private PageInfo pageInfo;
-
-    /**
-     * @deprecated prefer {@link #DefaultConnection(List, PageInfo)}
-     */
-    @Deprecated
-    public DefaultConnection() {
-    }
+    private final List<Edge<T>> edges;
+    private final PageInfo pageInfo;
 
     /**
-     * @param edges edges
-     * @param pageInfo page info
+     * A connection consists of a list of edges and page info
+     *
+     * @param edges    a non null list of edges
+     * @param pageInfo a non null page info
+     *
      * @throws IllegalArgumentException if edges or page info is null. use {@link Collections#emptyList()} for empty edges.
      */
     public DefaultConnection(List<Edge<T>> edges, PageInfo pageInfo) {
-        if (edges == null) {
-            throw new IllegalArgumentException("edges cannot be empty");
-        }
-        if (pageInfo == null) {
-            throw new IllegalArgumentException("page info cannot be null");
-        }
-        // TODO make defensive copy
-        this.edges = edges;
-        this.pageInfo = pageInfo;
+        this.edges = unmodifiableList(assertNotNull(edges, "edges cannot be null"));
+        this.pageInfo = assertNotNull(pageInfo, "page info cannot be null");
     }
 
     @Override
     public List<Edge<T>> getEdges() {
-        return Collections.unmodifiableList(edges);
-    }
-
-    /**
-     * @deprecated prefer {@link #DefaultConnection(List, PageInfo)} and avoid mutation
-     * @param edges edges
-     */
-    @Deprecated
-    public void setEdges(List<Edge<T>> edges) {
-        if (edges == null) { // TODO remove setter
-            edges = Collections.emptyList();
-        }
-        this.edges = edges;
+        return edges;
     }
 
     @Override
@@ -56,21 +40,11 @@ public class DefaultConnection<T> implements Connection<T> {
         return pageInfo;
     }
 
-    /**
-     * @deprecated prefer {@link #DefaultConnection(List, PageInfo)} and avoid mutation
-     * @param pageInfo page info
-     */
-    @Deprecated
-    public void setPageInfo(PageInfo pageInfo) {
-        this.pageInfo = pageInfo;
-    }
-
     @Override
     public String toString() {
-        final StringBuilder sb = new StringBuilder("DefaultConnection{");
-        sb.append("edges=").append(edges);
-        sb.append(", pageInfo=").append(pageInfo);
-        sb.append('}');
-        return sb.toString();
+        return "DefaultConnection{" +
+                "edges=" + edges +
+                ", pageInfo=" + pageInfo +
+                '}';
     }
 }

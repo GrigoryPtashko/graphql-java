@@ -3,49 +3,29 @@ package graphql.execution.instrumentation
 import graphql.ExecutionResult
 import graphql.GraphQL
 import graphql.StarWarsSchema
-import graphql.execution.SimpleExecutionStrategy
-import graphql.execution.instrumentation.parameters.*
-import graphql.language.Document
-import graphql.validation.ValidationError
+import graphql.execution.AsyncExecutionStrategy
+import graphql.execution.batched.BatchedExecutionStrategy
+import graphql.execution.instrumentation.parameters.InstrumentationExecutionStrategyParameters
+import graphql.execution.instrumentation.parameters.InstrumentationFieldFetchParameters
+import graphql.schema.DataFetcher
+import graphql.schema.DataFetchingEnvironment
+import graphql.schema.PropertyDataFetcher
+import graphql.schema.StaticDataFetcher
+import org.awaitility.Awaitility
 import spock.lang.Specification
 
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
 class InstrumentationTest extends Specification {
-
-    class Timer<T> implements InstrumentationContext<T> {
-        def op
-        def start = System.currentTimeMillis()
-        def executionList = []
-
-        Timer(op, executionList) {
-            this.op = op
-            this.executionList = executionList
-            executionList << "start:$op"
-            println("Started $op...")
-        }
-
-        def end() {
-            this.executionList << "end:$op"
-            def ms = System.currentTimeMillis() - start
-            println("\tEnded $op in ${ms}ms")
-        }
-
-        @Override
-        void onEnd(T result) {
-            end()
-        }
-
-        @Override
-        void onEnd(Exception e) {
-            end()
-        }
-    }
 
 
     def 'Instrumentation of simple serial execution'() {
         given:
 
         def query = """
-        query HeroNameAndFriendsQuery {
+        {
             hero {
                 id
             }
@@ -53,9 +33,10 @@ class InstrumentationTest extends Specification {
         """
 
         //
-        // for testing purposes we must use SimpleExecutionStrategy under the covers to get such
+        // for testing purposes we must use AsyncExecutionStrategy under the covers to get such
         // serial behaviour.  The Instrumentation of a parallel strategy would be much different
         // and certainly harder to test
+
         def expected = [
                 "start:execution",
 
@@ -67,63 +48,36 @@ class InstrumentationTest extends Specification {
 
                 "start:data-fetch",
 
+                "start:execution-strategy",
+
                 "start:field-hero",
                 "start:fetch-hero",
                 "end:fetch-hero",
+
+                "start:execution-strategy",
 
                 "start:field-id",
                 "start:fetch-id",
                 "end:fetch-id",
                 "end:field-id",
 
+                "end:execution-strategy",
+
                 "end:field-hero",
+
+                "end:execution-strategy",
 
                 "end:data-fetch",
 
                 "end:execution",
         ]
-
         when:
 
-        def instrumentation = new Instrumentation() {
+        def instrumentation = new TestingInstrumentation()
 
-            def executionList = []
-
-            @Override
-            InstrumentationContext<ExecutionResult> beginExecution(InstrumentationExecutionParameters parameters) {
-                new Timer("execution", executionList)
-            }
-
-            @Override
-            InstrumentationContext<Document> beginParse(InstrumentationExecutionParameters parameters) {
-                return new Timer("parse", executionList)
-            }
-
-            @Override
-            InstrumentationContext<List<ValidationError>> beginValidation(InstrumentationValidationParameters parameters) {
-                return new Timer("validation", executionList)
-            }
-
-            @Override
-            InstrumentationContext<ExecutionResult> beginDataFetch(InstrumentationDataFetchParameters parameters) {
-                return new Timer("data-fetch", executionList)
-            }
-
-            @Override
-            InstrumentationContext<ExecutionResult> beginField(InstrumentationFieldParameters parameters) {
-                return new Timer("field-$parameters.field.name", executionList)
-            }
-
-            @Override
-            InstrumentationContext<Object> beginFieldFetch(InstrumentationFieldFetchParameters parameters) {
-                return new Timer("fetch-$parameters.field.name", executionList)
-            }
-        }
-
-        def strategy = new SimpleExecutionStrategy()
         def graphQL = GraphQL
                 .newGraphQL(StarWarsSchema.starWarsSchema)
-                .queryExecutionStrategy(strategy)
+                .queryExecutionStrategy(new AsyncExecutionStrategy())
                 .instrumentation(instrumentation)
                 .build()
 
@@ -132,6 +86,188 @@ class InstrumentationTest extends Specification {
         then:
 
         instrumentation.executionList == expected
+
+        instrumentation.dfClasses.size() == 2
+        instrumentation.dfClasses[0] == StaticDataFetcher.class
+        instrumentation.dfClasses[1] == PropertyDataFetcher.class
+
+        instrumentation.dfInvocations.size() == 2
+
+        instrumentation.dfInvocations[0].getFieldDefinition().name == 'hero'
+        instrumentation.dfInvocations[0].getFieldTypeInfo().getPath().toList() == ['hero']
+        instrumentation.dfInvocations[0].getFieldTypeInfo().getType().name == 'Character'
+        !instrumentation.dfInvocations[0].getFieldTypeInfo().isNonNullType()
+
+        instrumentation.dfInvocations[1].getFieldDefinition().name == 'id'
+        instrumentation.dfInvocations[1].getFieldTypeInfo().getPath().toList() == ['hero', 'id']
+        instrumentation.dfInvocations[1].getFieldTypeInfo().getType().name == 'String'
+        instrumentation.dfInvocations[1].getFieldTypeInfo().isNonNullType()
     }
 
+    def '#630 - Instrumentation of batched execution strategy is called'() {
+        given:
+
+        def query = """
+        {
+            hero {
+                id
+            }
+        }
+        """
+
+        def expected = [
+                "start:execution",
+                "start:parse",
+                "end:parse",
+                "start:validation",
+                "end:validation",
+                "start:data-fetch",
+                "start:execution-strategy",
+
+                "start:field-hero",
+                "start:fetch-hero",
+                "end:fetch-hero",
+                "end:field-hero",
+
+                "start:field-id",
+                "start:fetch-id",
+                "end:fetch-id",
+                "end:field-id",
+
+                "end:execution-strategy",
+                "end:data-fetch",
+                "end:execution",
+        ]
+        when:
+
+        def instrumentation = new TestingInstrumentation()
+
+        def graphQL = GraphQL
+                .newGraphQL(StarWarsSchema.starWarsSchema)
+                .queryExecutionStrategy(new BatchedExecutionStrategy())
+                .instrumentation(instrumentation)
+                .build()
+
+        graphQL.execute(query)
+
+        then:
+
+        instrumentation.executionList == expected
+    }
+
+    def "exceptions at field fetch will instrument exceptions correctly"() {
+
+        given:
+
+        def query = """
+        {
+            hero {
+                id
+            }
+        }
+        """
+
+        def instrumentation = new TestingInstrumentation() {
+            @Override
+            DataFetcher<?> instrumentDataFetcher(DataFetcher<?> dataFetcher, InstrumentationFieldFetchParameters parameters) {
+                return new DataFetcher<Object>() {
+                    @Override
+                    Object get(DataFetchingEnvironment environment) {
+                        throw new RuntimeException("DF BANG!")
+                    }
+                }
+            }
+        }
+
+        def graphQL = GraphQL
+                .newGraphQL(StarWarsSchema.starWarsSchema)
+                .instrumentation(instrumentation)
+                .build()
+
+        when:
+        graphQL.execute(query)
+
+        then:
+        instrumentation.throwableList.size() == 1
+        instrumentation.throwableList[0].getMessage() == "DF BANG!"
+    }
+
+    /**
+     * This uses a stop and go pattern and multiple threads.  Each time
+     * the execution strategy is invoked, the data fetchers are held
+     * and when all the fields are dispatched, the signal is released
+     *
+     * Clearly you would not do this in production but this how say
+     * java-dataloader works.  That is calls inside DataFetchers are "batched"
+     * until a "dispatch" signal is made.
+     */
+    class WaitingInstrumentation extends NoOpInstrumentation {
+
+        final AtomicBoolean goSignal = new AtomicBoolean()
+
+        @Override
+        InstrumentationContext<CompletableFuture<ExecutionResult>> beginExecutionStrategy(InstrumentationExecutionStrategyParameters parameters) {
+            System.out.println(String.format("t%s setting go signal off", Thread.currentThread().getId()))
+            goSignal.set(false)
+            return new InstrumentationContext<CompletableFuture<ExecutionResult>>() {
+                @Override
+                void onEnd(CompletableFuture<ExecutionResult> result, Throwable t) {
+                    System.out.println(String.format("t%s setting go signal on", Thread.currentThread().getId()))
+                    goSignal.set(true)
+                }
+            }
+        }
+
+        @Override
+        DataFetcher<?> instrumentDataFetcher(DataFetcher<?> dataFetcher, InstrumentationFieldFetchParameters parameters) {
+            System.out.println(String.format("t%s instrument DF for %s", Thread.currentThread().getId(), parameters.environment.getFieldTypeInfo().getPath()))
+
+            return new DataFetcher<Object>() {
+                @Override
+                Object get(DataFetchingEnvironment environment) {
+                    // off thread call - that waits
+                    return CompletableFuture.supplyAsync({
+                        def value = dataFetcher.get(environment)
+                        System.out.println(String.format("   t%s awaiting %s", Thread.currentThread().getId(), environment.getFieldTypeInfo().getPath()))
+                        Awaitility.await().atMost(20, TimeUnit.SECONDS).untilTrue(goSignal)
+                        System.out.println(String.format("      t%s returning value %s", Thread.currentThread().getId(), environment.getFieldTypeInfo().getPath()))
+                        return value
+                    })
+                }
+
+            }
+        }
+    }
+
+
+    def "beginExecutionStrategy will be called for each invocation"() {
+
+        given:
+
+        def query = """
+        {
+            artoo: hero {
+                id
+            }
+            
+            r2d2 : hero {
+               name
+            }
+        }
+        """
+
+        when:
+
+        WaitingInstrumentation instrumentation = new WaitingInstrumentation()
+        def graphQL = GraphQL
+                .newGraphQL(StarWarsSchema.starWarsSchema)
+                .instrumentation(instrumentation)
+                .build()
+
+        def er = graphQL.execute(query)
+
+        then:
+
+        er.data == [artoo: [id: '2001'], r2d2: [name: 'R2-D2']]
+    }
 }

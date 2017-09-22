@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 
 import static graphql.Assert.assertNotNull;
 import static graphql.Assert.assertValidName;
+import static java.lang.String.format;
 
 
 @PublicApi
@@ -55,7 +56,7 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
         for (GraphQLFieldDefinition fieldDefinition : fieldDefinitions) {
             String name = fieldDefinition.getName();
             if (fieldDefinitionsByName.containsKey(name))
-                throw new AssertException("field " + name + " redefined");
+                throw new AssertException(format("Duplicated definition for field '%s' in type '%s'", name, this.name));
             fieldDefinitionsByName.put(name, fieldDefinition);
         }
     }
@@ -97,7 +98,7 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
         return "GraphQLObjectType{" +
                 "name='" + name + '\'' +
                 ", description='" + description + '\'' +
-                ", fieldDefinitionsByName=" + fieldDefinitionsByName +
+                ", fieldDefinitionsByName=" + fieldDefinitionsByName.keySet() +
                 ", interfaces=" + interfaces +
                 '}';
     }
@@ -145,6 +146,7 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
          * </pre>
          *
          * @param builderFunction a supplier for the builder impl
+         *
          * @return this
          */
         public Builder field(UnaryOperator<GraphQLFieldDefinition.Builder> builderFunction) {
@@ -159,6 +161,7 @@ public class GraphQLObjectType implements GraphQLType, GraphQLOutputType, GraphQ
          * from within
          *
          * @param builder an un-built/incomplete GraphQLFieldDefinition
+         *
          * @return this
          */
         public Builder field(GraphQLFieldDefinition.Builder builder) {

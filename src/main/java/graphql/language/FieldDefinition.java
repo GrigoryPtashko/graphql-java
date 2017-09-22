@@ -3,6 +3,9 @@ package graphql.language;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+
+import static graphql.language.NodeUtil.directivesByName;
 
 public class FieldDefinition extends AbstractNode {
     private String name;
@@ -38,6 +41,15 @@ public class FieldDefinition extends AbstractNode {
     public List<Directive> getDirectives() {
         return directives;
     }
+
+    public Map<String, Directive> getDirectivesByName() {
+        return directivesByName(directives);
+    }
+
+    public Directive getDirective(String directiveName) {
+        return getDirectivesByName().get(directiveName);
+    }
+
 
     @Override
     public List<Node> getChildren() {

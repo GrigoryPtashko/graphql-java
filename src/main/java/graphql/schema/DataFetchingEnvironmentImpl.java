@@ -1,7 +1,10 @@
 package graphql.schema;
 
 
+import graphql.Internal;
 import graphql.execution.ExecutionId;
+import graphql.execution.ExecutionPath;
+import graphql.execution.ExecutionTypeInfo;
 import graphql.language.Field;
 import graphql.language.FragmentDefinition;
 
@@ -9,11 +12,13 @@ import java.util.List;
 import java.util.Map;
 
 @SuppressWarnings("unchecked")
+@Internal
 public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     private final Object source;
     private final Map<String, Object> arguments;
     private final Object context;
     private final Object root;
+    private final GraphQLFieldDefinition fieldDefinition;
     private final List<Field> fields;
     private final GraphQLOutputType fieldType;
     private final GraphQLType parentType;
@@ -21,12 +26,14 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     private final Map<String, FragmentDefinition> fragmentsByName;
     private final ExecutionId executionId;
     private final DataFetchingFieldSelectionSet selectionSet;
+    private final ExecutionTypeInfo fieldTypeInfo;
 
-    public DataFetchingEnvironmentImpl(Object source, Map<String, Object> arguments, Object context, Object root, List<Field> fields, GraphQLOutputType fieldType, GraphQLType parentType, GraphQLSchema graphQLSchema, Map<String, FragmentDefinition> fragmentsByName, ExecutionId executionId, DataFetchingFieldSelectionSet selectionSet) {
+    public DataFetchingEnvironmentImpl(Object source, Map<String, Object> arguments, Object context, Object root, GraphQLFieldDefinition fieldDefinition, List<Field> fields, GraphQLOutputType fieldType, GraphQLType parentType, GraphQLSchema graphQLSchema, Map<String, FragmentDefinition> fragmentsByName, ExecutionId executionId, DataFetchingFieldSelectionSet selectionSet, ExecutionTypeInfo fieldTypeInfo) {
         this.source = source;
         this.arguments = arguments;
         this.context = context;
         this.root = root;
+        this.fieldDefinition = fieldDefinition;
         this.fields = fields;
         this.fieldType = fieldType;
         this.parentType = parentType;
@@ -34,6 +41,7 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
         this.fragmentsByName = fragmentsByName;
         this.executionId = executionId;
         this.selectionSet = selectionSet;
+        this.fieldTypeInfo = fieldTypeInfo;
     }
 
     @Override
@@ -64,6 +72,11 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     @Override
     public <T> T getRoot() {
         return (T) root;
+    }
+
+    @Override
+    public GraphQLFieldDefinition getFieldDefinition() {
+        return fieldDefinition;
     }
 
     @Override
@@ -99,5 +112,17 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     @Override
     public DataFetchingFieldSelectionSet getSelectionSet() {
         return selectionSet;
+    }
+
+    @Override
+    public ExecutionTypeInfo getFieldTypeInfo() {
+        return fieldTypeInfo;
+    }
+
+    @Override
+    public String toString() {
+        return "DataFetchingEnvironmentImpl{" +
+                "fieldTypeInfo=" + fieldTypeInfo +
+                '}';
     }
 }

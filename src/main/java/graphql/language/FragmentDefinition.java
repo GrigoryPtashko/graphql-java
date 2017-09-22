@@ -5,6 +5,9 @@ import graphql.PublicApi;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+
+import static graphql.language.NodeUtil.directivesByName;
 
 /**
  * Provided to the DataFetcher, therefore public API
@@ -51,6 +54,14 @@ public class FragmentDefinition extends AbstractNode implements Definition {
 
     public List<Directive> getDirectives() {
         return directives;
+    }
+
+    public Map<String, Directive> getDirectivesByName() {
+        return directivesByName(directives);
+    }
+
+    public Directive getDirective(String directiveName) {
+        return getDirectivesByName().get(directiveName);
     }
 
     public void setDirectives(List<Directive> directives) {

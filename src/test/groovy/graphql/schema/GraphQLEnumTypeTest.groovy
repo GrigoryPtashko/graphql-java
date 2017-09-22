@@ -1,7 +1,6 @@
 package graphql.schema
 
 import graphql.AssertException
-import graphql.GraphQLException
 import graphql.language.EnumValue
 import graphql.language.StringValue
 import spock.lang.Specification
@@ -15,7 +14,7 @@ class GraphQLEnumTypeTest extends Specification {
     def setup() {
         enumType = newEnum().name("TestEnum")
                 .value("NAME", 42)
-                .build();
+                .build()
     }
 
     def "parse throws exception for unknown value"() {
@@ -23,7 +22,7 @@ class GraphQLEnumTypeTest extends Specification {
         enumType.getCoercing().parseValue("UNKNOWN")
 
         then:
-        thrown(GraphQLException)
+        thrown(CoercingParseValueException)
     }
 
 
@@ -41,7 +40,7 @@ class GraphQLEnumTypeTest extends Specification {
         when:
         enumType.getCoercing().serialize(12)
         then:
-        thrown(GraphQLException)
+        thrown(CoercingSerializeException)
     }
 
 
@@ -75,8 +74,42 @@ class GraphQLEnumTypeTest extends Specification {
         newEnum().name("AnotherTestEnum")
                 .value("NAME", 42)
                 .value("NAME", 43)
-                .build();
+                .build()
         then:
         thrown(AssertException)
+    }
+
+    enum Episode {
+        NEWHOPE, EMPIRE
+    }
+
+    def "serialize Java enum objects with String definition values"() {
+
+        given:
+        enumType = newEnum().name("Episode")
+                .value("NEWHOPE", "NEWHOPE")
+                .value("EMPIRE", "EMPIRE")
+                .build()
+
+        when:
+        def serialized = enumType.coercing.serialize(Episode.EMPIRE)
+
+        then:
+        serialized == "EMPIRE"
+    }
+
+    def "serialize Java enum objects with Java enum definition values"() {
+
+        given:
+        enumType = newEnum().name("Episode")
+                .value("NEWHOPE", Episode.NEWHOPE)
+                .value("EMPIRE", Episode.EMPIRE)
+                .build()
+
+        when:
+        def serialized = enumType.coercing.serialize(Episode.NEWHOPE)
+
+        then:
+        serialized == "NEWHOPE"
     }
 }

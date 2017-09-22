@@ -5,13 +5,11 @@ import graphql.Scalars;
 import graphql.StarWarsData;
 import graphql.StarWarsSchema;
 import graphql.TypeResolutionEnvironment;
+import graphql.execution.AsyncExecutionStrategy;
 import graphql.execution.ExecutorServiceExecutionStrategy;
-import graphql.execution.SimpleExecutionStrategy;
 import graphql.language.Directive;
 import graphql.language.FieldDefinition;
-import graphql.language.InterfaceTypeDefinition;
 import graphql.language.TypeDefinition;
-import graphql.language.UnionTypeDefinition;
 import graphql.schema.Coercing;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
@@ -27,10 +25,13 @@ import graphql.schema.GraphQLTypeReference;
 import graphql.schema.GraphQLUnionType;
 import graphql.schema.StaticDataFetcher;
 import graphql.schema.TypeResolver;
+import graphql.schema.idl.FieldWiringEnvironment;
+import graphql.schema.idl.InterfaceWiringEnvironment;
 import graphql.schema.idl.RuntimeWiring;
 import graphql.schema.idl.SchemaGenerator;
 import graphql.schema.idl.SchemaParser;
 import graphql.schema.idl.TypeDefinitionRegistry;
+import graphql.schema.idl.UnionWiringEnvironment;
 import graphql.schema.idl.WiringFactory;
 
 import java.io.File;
@@ -183,8 +184,8 @@ public class ReadmeExamples {
 
         GraphQL graphQL = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema)
                 .queryExecutionStrategy(new ExecutorServiceExecutionStrategy(threadPoolExecutor))
-                .mutationExecutionStrategy(new SimpleExecutionStrategy())
-                .subscriptionExecutionStrategy(new SimpleExecutionStrategy())
+                .mutationExecutionStrategy(new AsyncExecutionStrategy())
+                .subscriptionExecutionStrategy(new AsyncExecutionStrategy())
                 .build();
 
     }
@@ -367,41 +368,67 @@ public class ReadmeExamples {
 
     RuntimeWiring buildDynamicRuntimeWiring() {
         WiringFactory dynamicWiringFactory = new WiringFactory() {
+
+
             @Override
-            public boolean providesTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition definition) {
-                return getDirective(definition,"specialMarker") != null;
+            public boolean providesTypeResolver(InterfaceWiringEnvironment environment) {
+                return getDirective(environment.getInterfaceTypeDefinition(), "specialMarker") != null;
             }
 
             @Override
-            public boolean providesTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition definition) {
-                return getDirective(definition, "specialMarker") != null;
+            public boolean providesTypeResolver(UnionWiringEnvironment environment) {
+                return getDirective(environment.getUnionTypeDefinition(), "specialMarker") != null;
             }
 
             @Override
-            public TypeResolver getTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition definition) {
-                Directive directive = getDirective(definition, "specialMarker");
-                return createTypeResolver(definition, directive);
+            public TypeResolver getTypeResolver(InterfaceWiringEnvironment environment) {
+                Directive directive = getDirective(environment.getInterfaceTypeDefinition(), "specialMarker");
+                return createTypeResolver(environment.getInterfaceTypeDefinition(), directive);
             }
 
             @Override
-            public TypeResolver getTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition definition) {
-                Directive directive  = getDirective(definition,"specialMarker");
-                return createTypeResolver(definition,directive);
+            public TypeResolver getTypeResolver(UnionWiringEnvironment environment) {
+                Directive directive = getDirective(environment.getUnionTypeDefinition(), "specialMarker");
+                return createTypeResolver(environment.getUnionTypeDefinition(), directive);
             }
 
             @Override
-            public boolean providesDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
-                return getDirective(definition,"dataFetcher") != null;
+            public boolean providesDataFetcher(FieldWiringEnvironment environment) {
+                return getDirective(environment.getFieldDefinition(), "dataFetcher") != null;
             }
 
             @Override
-            public DataFetcher getDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
-                Directive directive = getDirective(definition, "dataFetcher");
-                return createDataFetcher(definition,directive);
+            public DataFetcher getDataFetcher(FieldWiringEnvironment environment) {
+                Directive directive = getDirective(environment.getFieldDefinition(), "dataFetcher");
+                return createDataFetcher(environment.getFieldDefinition(), directive);
             }
         };
         return RuntimeWiring.newRuntimeWiring()
                 .wiringFactory(dynamicWiringFactory).build();
+    }
+
+    class Wizard {
+
+    }
+
+    class Witch {
+
+    }
+
+    private void typeResolverExample() {
+        new TypeResolver() {
+            @Override
+            public GraphQLObjectType getType(TypeResolutionEnvironment env) {
+                Object javaObject = env.getObject();
+                if (javaObject instanceof Wizard) {
+                    return (GraphQLObjectType) env.getSchema().getType("WizardType");
+                } else if (javaObject instanceof Witch) {
+                    return (GraphQLObjectType) env.getSchema().getType("WitchType");
+                } else {
+                    return (GraphQLObjectType) env.getSchema().getType("NecromancerType");
+                }
+            }
+        };
     }
 
     private DataFetcher createDataFetcher(FieldDefinition definition, Directive directive) {
@@ -415,6 +442,7 @@ public class ReadmeExamples {
     private Directive getDirective(TypeDefinition definition, String type) {
         throw new UnsupportedOperationException("Not implemented");
     }
+
     private Directive getDirective(FieldDefinition fieldDefintion, String type) {
         throw new UnsupportedOperationException("Not implemented");
     }

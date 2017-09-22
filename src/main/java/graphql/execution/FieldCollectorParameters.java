@@ -1,6 +1,7 @@
 package graphql.execution;
 
 import graphql.Assert;
+import graphql.Internal;
 import graphql.language.FragmentDefinition;
 import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLSchema;
@@ -8,6 +9,10 @@ import graphql.schema.GraphQLSchema;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * Internal because FieldCollector is internal.
+ */
+@Internal
 public class FieldCollectorParameters {
     private final GraphQLSchema graphQLSchema;
     private final Map<String, FragmentDefinition> fragmentsByName;
@@ -37,10 +42,8 @@ public class FieldCollectorParameters {
         this.objectType = objectType;
     }
 
-    public static Builder newParameters(GraphQLSchema graphQLSchema, GraphQLObjectType objectType) {
-        Assert.assertNotNull(graphQLSchema, "You must provide a schema");
-        Assert.assertNotNull(objectType, "You must provide an object type");
-        return new Builder().schema(graphQLSchema).objectType(objectType);
+    public static Builder newParameters() {
+        return new Builder();
     }
 
     public static class Builder {
@@ -48,6 +51,13 @@ public class FieldCollectorParameters {
         private Map<String, FragmentDefinition> fragmentsByName = new LinkedHashMap<>();
         private Map<String, Object> variables = new LinkedHashMap<>();
         private GraphQLObjectType objectType;
+
+        /**
+         * @see FieldCollectorParameters#newParameters()
+         */
+        private Builder() {
+
+        }
 
         public Builder schema(GraphQLSchema graphQLSchema) {
             this.graphQLSchema = graphQLSchema;
@@ -70,6 +80,7 @@ public class FieldCollectorParameters {
         }
 
         public FieldCollectorParameters build() {
+            Assert.assertNotNull(graphQLSchema, "You must provide a schema");
             return new FieldCollectorParameters(graphQLSchema, variables, fragmentsByName, objectType);
         }
 

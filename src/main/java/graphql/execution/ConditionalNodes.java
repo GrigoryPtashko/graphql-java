@@ -7,6 +7,7 @@ import java.util.Map;
 
 import static graphql.Directives.IncludeDirective;
 import static graphql.Directives.SkipDirective;
+import static graphql.language.NodeUtil.directivesByName;
 
 
 public class ConditionalNodes {
@@ -19,14 +20,14 @@ public class ConditionalNodes {
 
     public boolean shouldInclude(Map<String, Object> variables, List<Directive> directives) {
 
-        Directive skipDirective = findDirective(directives, SkipDirective.getName());
+        Directive skipDirective = getDirectiveByName(directives, SkipDirective.getName());
         if (skipDirective != null) {
             Map<String, Object> argumentValues = valuesResolver.getArgumentValues(SkipDirective.getArguments(), skipDirective.getArguments(), variables);
             return !(Boolean) argumentValues.get("if");
         }
 
 
-        Directive includeDirective = findDirective(directives, IncludeDirective.getName());
+        Directive includeDirective = getDirectiveByName(directives, IncludeDirective.getName());
         if (includeDirective != null) {
             Map<String, Object> argumentValues = valuesResolver.getArgumentValues(IncludeDirective.getArguments(), includeDirective.getArguments(), variables);
             return (Boolean) argumentValues.get("if");
@@ -35,11 +36,11 @@ public class ConditionalNodes {
         return true;
     }
 
-    private Directive findDirective(List<Directive> directives, String name) {
-        for (Directive directive : directives) {
-            if (directive.getName().equals(name)) return directive;
+    private Directive getDirectiveByName(List<Directive> directives, String name) {
+        if (directives.isEmpty()) {
+            return null;
         }
-        return null;
+        return directivesByName(directives).get(name);
     }
 
 }

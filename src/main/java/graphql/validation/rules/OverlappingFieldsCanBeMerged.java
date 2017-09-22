@@ -11,6 +11,7 @@ import graphql.validation.ValidationErrorCollector;
 
 import java.util.*;
 
+import static graphql.language.NodeUtil.directivesByName;
 import static graphql.validation.ValidationErrorType.FieldsConflict;
 
 public class OverlappingFieldsCanBeMerged extends AbstractRule {
@@ -191,20 +192,15 @@ public class OverlappingFieldsCanBeMerged extends AbstractRule {
     private boolean sameDirectives(List<Directive> directives1, List<Directive> directives2) {
         if (directives1.size() != directives2.size()) return false;
         for (Directive directive : directives1) {
-            Directive matchedDirective = findDirectiveByName(directive.getName(), directives2);
+            Directive matchedDirective = getDirectiveByName(directive.getName(), directives2);
             if (matchedDirective == null) return false;
             if (!sameArguments(directive.getArguments(), matchedDirective.getArguments())) return false;
         }
         return true;
     }
 
-    private Directive findDirectiveByName(String name, List<Directive> directives) {
-        for (Directive directive : directives) {
-            if (directive.getName().equals(name)) {
-                return directive;
-            }
-        }
-        return null;
+    private Directive getDirectiveByName(String name, List<Directive> directives) {
+        return directivesByName(directives).get(name);
     }
 
 
@@ -254,10 +250,14 @@ public class OverlappingFieldsCanBeMerged extends AbstractRule {
         GraphQLOutputType fieldType = null;
         if (parentType instanceof GraphQLFieldsContainer) {
             GraphQLFieldsContainer fieldsContainer = (GraphQLFieldsContainer) parentType;
-            GraphQLFieldDefinition fieldDefinition = fieldsContainer.getFieldDefinition(field.getName());
+            GraphQLFieldDefinition fieldDefinition = getVisibleFieldDefinition(fieldsContainer, field);
             fieldType = fieldDefinition != null ? fieldDefinition.getType() : null;
         }
         fieldMap.get(responseName).add(new FieldAndType(field, fieldType, parentType));
+    }
+
+    private GraphQLFieldDefinition getVisibleFieldDefinition(GraphQLFieldsContainer fieldsContainer, Field field) {
+        return getValidationContext().getSchema().getFieldVisibility().getFieldDefinition(fieldsContainer,field.getName());
     }
 
     private static class FieldPair {

@@ -2,18 +2,18 @@ package graphql.language;
 
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+
+import static graphql.language.NodeUtil.argumentsByName;
 
 public class Directive extends AbstractNode {
-    private String name;
+    private final String name;
     private final List<Argument> arguments = new ArrayList<>();
 
-    public Directive() {
-
-    }
-
     public Directive(String name) {
-        this.name = name;
+        this(name, Collections.emptyList());
     }
 
     public Directive(String name, List<Argument> arguments) {
@@ -25,12 +25,17 @@ public class Directive extends AbstractNode {
         return arguments;
     }
 
-    public String getName() {
-        return name;
+    public Map<String, Argument> getArgumentsByName() {
+        // the spec says that args MUST be unique within context
+        return argumentsByName(arguments);
     }
 
-    public void setName(String name) {
-        this.name = name;
+    public Argument getArgument(String argumentName) {
+        return getArgumentsByName().get(argumentName);
+    }
+
+    public String getName() {
+        return name;
     }
 
 

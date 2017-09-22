@@ -1,12 +1,15 @@
 package graphql.execution.batched;
 
 
+import graphql.execution.Async;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
-import graphql.schema.DataFetchingEnvironmentImpl;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+import static graphql.schema.DataFetchingEnvironmentBuilder.newDataFetchingEnvironment;
 
 /**
  * Given a normal data fetcher as a delegate,
@@ -23,24 +26,16 @@ public class UnbatchedDataFetcher implements BatchedDataFetcher {
 
 
     @Override
-    public Object get(DataFetchingEnvironment environment) {
+    public CompletableFuture<List<Object>> get(DataFetchingEnvironment environment) {
         List<Object> sources = environment.getSource();
-        List<Object> results = new ArrayList<>();
+        List<CompletableFuture<Object>> results = new ArrayList<>();
         for (Object source : sources) {
-            DataFetchingEnvironment singleEnv = new DataFetchingEnvironmentImpl(
-                    source,
-                    environment.getArguments(),
-                    environment.getContext(),
-                    environment.getRoot(),
-                    environment.getFields(),
-                    environment.getFieldType(),
-                    environment.getParentType(),
-                    environment.getGraphQLSchema(),
-                    environment.getFragmentsByName(),
-                    environment.getExecutionId(),
-                    environment.getSelectionSet());
-            results.add(delegate.get(singleEnv));
+
+            DataFetchingEnvironment singleEnv = newDataFetchingEnvironment(environment)
+                    .source(source).build();
+            CompletableFuture<Object> cf = Async.toCompletableFuture(delegate.get(singleEnv));
+            results.add(cf);
         }
-        return results;
+        return Async.each(results);
     }
 }

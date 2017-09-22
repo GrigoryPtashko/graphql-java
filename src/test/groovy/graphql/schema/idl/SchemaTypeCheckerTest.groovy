@@ -2,7 +2,6 @@ package graphql.schema.idl
 
 import graphql.GraphQLError
 import graphql.TypeResolutionEnvironment
-import graphql.language.FieldDefinition
 import graphql.language.InterfaceTypeDefinition
 import graphql.language.UnionTypeDefinition
 import graphql.schema.DataFetcher
@@ -25,39 +24,39 @@ class SchemaTypeCheckerTest extends Specification {
     }
 
     class NamedWiringFactory implements WiringFactory {
-        List<String> names
+        String name
 
-        NamedWiringFactory(List<String> names) {
-            this.names = names
+        NamedWiringFactory(String name) {
+            this.name = name
         }
 
         @Override
-        boolean providesTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition definition) {
-            return names.contains(definition.getName())
+        boolean providesTypeResolver(InterfaceWiringEnvironment environment) {
+            return name == environment.getInterfaceTypeDefinition().getName()
         }
 
         @Override
-        boolean providesTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition definition) {
-            return names.contains(definition.getName())
-        }
-
-        @Override
-        TypeResolver getTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition definition) {
+        TypeResolver getTypeResolver(InterfaceWiringEnvironment environment) {
             resolver
         }
 
         @Override
-        TypeResolver getTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition definition) {
+        boolean providesTypeResolver(UnionWiringEnvironment environment) {
+            return name == environment.getUnionTypeDefinition().getName()
+        }
+
+        @Override
+        TypeResolver getTypeResolver(UnionWiringEnvironment environment) {
             resolver
         }
 
         @Override
-        boolean providesDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
+        boolean providesDataFetcher(FieldWiringEnvironment environment) {
             false
         }
 
         @Override
-        DataFetcher getDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
+        DataFetcher getDataFetcher(FieldWiringEnvironment environment) {
             throw new UnsupportedOperationException("Not implemented")
         }
     }
@@ -67,7 +66,7 @@ class SchemaTypeCheckerTest extends Specification {
         def types = parse(spec)
 
 
-        NamedWiringFactory wiringFactory = new NamedWiringFactory(["InterfaceType"])
+        NamedWiringFactory wiringFactory = new NamedWiringFactory("InterfaceType")
 
         def wiring = RuntimeWiring.newRuntimeWiring()
                 .wiringFactory(wiringFactory)
@@ -730,4 +729,192 @@ class SchemaTypeCheckerTest extends Specification {
 
         result.isEmpty()
     }
+
+    def "test that field names within types are unique"() {
+
+        def spec = """                        
+            
+            type Query {
+                fieldA : String
+                fieldA : Int
+            }
+
+            extend type Query {
+                fieldB : String
+                fieldB : Int
+                fieldOK : Int
+            }
+            
+            enum EnumType {
+                enumA
+                enumA
+                enumOK
+            }
+
+            input InputType {
+                inputFieldA : String
+                inputFieldA : String
+                inputFieldOK : String
+            }
+        """
+
+        def result = check(spec)
+
+        expect:
+
+        !result.isEmpty()
+        result.size() == 4
+    }
+
+    def "test that field args are unique"() {
+
+        def spec = """                        
+            
+            type Query {
+                fieldA(arg1 : Int, arg1 : String) : String
+                fieldB(arg1 : Int, argOK : String) : String
+            }
+
+            extend type Query {
+                fieldC(arg1 : Int, arg1 : String) : String
+                fieldD(arg1 : Int, argOK : String) : String
+            }
+            
+            interface InterfaceType1 {
+                fieldX(arg1 : Int, arg1 : String) : String
+                fieldY(arg1 : Int, argOK : String) : String
+            }
+            
+            type Implementor implements InterfaceType1 {
+                fieldX(arg1 : Int, arg1 : String) : String
+                fieldY(arg1 : Int, argOK : String) : String
+            }
+        """
+
+        def result = check(spec)
+
+        expect:
+
+        !result.isEmpty()
+        result.size() == 4
+    }
+
+
+    def "test that deprecation directive is valid"() {
+
+        def spec = """                        
+            
+            interface InterfaceType1 {
+                fieldA : String @deprecated(badName : "must be called reason") 
+            }
+
+            type Query implements InterfaceType1 {
+                fieldA : String
+                fieldC : String @deprecated(reason : "it must have", one : "argument value")
+            }
+
+            extend type Query {
+                fieldB : Int
+                fieldD: Int @deprecated(badName : "must be called reason")
+                fieldE: Int @deprecated(reason : "it must have", one : "argument value")
+            }
+            
+            enum EnumType {
+                
+                enumA @deprecated(badName : "must be called reason"),
+                enumB @deprecated(reason : "it must have", one : "argument value")
+            }
+
+            input InputType {
+                inputFieldA : String @deprecated(badName : "must be called reason")
+                inputFieldB : String @deprecated(reason : "it must have", one : "argument value")
+            }
+        """
+
+        def result = check(spec)
+
+        expect:
+
+        !result.isEmpty()
+        result.size() == 8
+    }
+
+    def "test that directives are valid"() {
+
+        def spec = """                        
+            
+            interface InterfaceType1 {
+                fieldA : String @directiveA @directiveA 
+            }
+
+            type Query implements InterfaceType1 {
+                fieldA : String
+                fieldC : String @directiveA @directiveA
+            }
+
+            extend type Query {
+                fieldB : Int
+                fieldD: Int @directiveA @directiveA
+                fieldE: Int @directiveA @directiveOK
+            }
+            
+            enum EnumType {
+                
+                enumA @directiveA @directiveA
+                enumB @directiveA @directiveOK
+            }
+
+            input InputType {
+                inputFieldA : String @directiveA @directiveA
+                inputFieldB : String @directiveA @directiveOK
+            }
+        """
+
+        def result = check(spec)
+
+        expect:
+
+        !result.isEmpty()
+        result.size() == 5
+    }
+
+    def "test that directives args are valid"() {
+
+        def spec = """                        
+            
+            interface InterfaceType1 {
+                fieldA : String @directive(arg1 : 1, arg1 : 2) 
+            }
+
+            type Query implements InterfaceType1 {
+                fieldA : String
+                fieldC : String @directive(arg1 : 1, arg1 : 2)
+            }
+
+            extend type Query {
+                fieldB : Int
+                fieldD: Int @directive(arg1 : 1, arg1 : 2)
+                fieldE: Int @directive(arg1 : 1, argOK : 2)
+            }
+            
+            enum EnumType {
+                
+                enumA @directive(arg1 : 1, arg1 : 2)
+                enumB @directive(arg1 : 1, argOK : 2)
+            }
+
+            input InputType {
+                inputFieldA : String @directive(arg1 : 1, arg1 : 2)
+                inputFieldB : String @directive(arg1 : 1, argOK : 2)
+            }
+        """
+
+        def result = check(spec)
+
+        expect:
+
+        !result.isEmpty()
+        result.size() == 5
+    }
+
 }

@@ -1,42 +1,60 @@
 package graphql.execution.batched;
 
+import graphql.Assert;
 import graphql.ExecutionResult;
 import graphql.ExecutionResultImpl;
-import graphql.GraphQLException;
+import graphql.PublicApi;
+import graphql.execution.Async;
+import graphql.execution.DataFetcherExceptionHandler;
+import graphql.execution.DataFetcherExceptionHandlerParameters;
 import graphql.execution.ExecutionContext;
+import graphql.execution.ExecutionPath;
 import graphql.execution.ExecutionStrategy;
 import graphql.execution.ExecutionStrategyParameters;
+import graphql.execution.ExecutionTypeInfo;
 import graphql.execution.FieldCollectorParameters;
+import graphql.execution.NonNullableFieldValidator;
+import graphql.execution.SimpleDataFetcherExceptionHandler;
 import graphql.execution.TypeResolutionParameters;
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.InstrumentationContext;
+import graphql.execution.instrumentation.parameters.InstrumentationExecutionStrategyParameters;
+import graphql.execution.instrumentation.parameters.InstrumentationFieldFetchParameters;
+import graphql.execution.instrumentation.parameters.InstrumentationFieldParameters;
 import graphql.language.Field;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
-import graphql.schema.DataFetchingEnvironmentImpl;
 import graphql.schema.DataFetchingFieldSelectionSet;
 import graphql.schema.DataFetchingFieldSelectionSetImpl;
 import graphql.schema.GraphQLEnumType;
 import graphql.schema.GraphQLFieldDefinition;
 import graphql.schema.GraphQLInterfaceType;
 import graphql.schema.GraphQLList;
-import graphql.schema.GraphQLNonNull;
 import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLOutputType;
 import graphql.schema.GraphQLScalarType;
 import graphql.schema.GraphQLType;
 import graphql.schema.GraphQLUnionType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Array;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.function.BiFunction;
+import java.util.stream.IntStream;
 
+import static graphql.execution.ExecutionTypeInfo.newTypeInfo;
 import static graphql.execution.FieldCollectorParameters.newParameters;
+import static graphql.schema.DataFetchingEnvironmentBuilder.newDataFetchingEnvironment;
 import static java.util.Collections.singletonList;
+import static java.util.stream.Collectors.toList;
 
 /**
  * Execution Strategy that minimizes calls to the data fetcher when used in conjunction with {@link DataFetcher}s that have
@@ -48,171 +66,341 @@ import static java.util.Collections.singletonList;
  * Normal DataFetchers can be used, however they will not see benefits of batching as they expect a single source object
  * at a time.
  */
+@PublicApi
 public class BatchedExecutionStrategy extends ExecutionStrategy {
-
-    private static final Logger log = LoggerFactory.getLogger(BatchedExecutionStrategy.class);
 
     private final BatchedDataFetcherFactory batchingFactory = new BatchedDataFetcherFactory();
 
+    public BatchedExecutionStrategy() {
+        this(new SimpleDataFetcherExceptionHandler());
+    }
+
+    public BatchedExecutionStrategy(DataFetcherExceptionHandler dataFetcherExceptionHandler) {
+        super(dataFetcherExceptionHandler);
+    }
+
     @Override
-    public ExecutionResult execute(ExecutionContext executionContext, ExecutionStrategyParameters parameters) {
-        GraphQLExecutionNodeDatum data = new GraphQLExecutionNodeDatum(new LinkedHashMap<>(), parameters.source());
+    public CompletableFuture<ExecutionResult> execute(ExecutionContext executionContext, ExecutionStrategyParameters parameters) {
+        InstrumentationContext<CompletableFuture<ExecutionResult>> executionStrategyCtx = executionContext.getInstrumentation().beginExecutionStrategy(new InstrumentationExecutionStrategyParameters(executionContext));
+
         GraphQLObjectType type = parameters.typeInfo().castType(GraphQLObjectType.class);
-        GraphQLExecutionNode root = new GraphQLExecutionNode(type, parameters.fields(), singletonList(data));
-        return execute(executionContext, root);
+
+        ExecutionNode root = new ExecutionNode(type,
+                parameters.typeInfo(),
+                parameters.fields(),
+                singletonList(MapOrList.createMap(new LinkedHashMap<>())),
+                Collections.singletonList(parameters.source())
+        );
+
+        Queue<ExecutionNode> nodes = new ArrayDeque<>();
+        CompletableFuture<ExecutionResult> result = new CompletableFuture<>();
+        executeImpl(executionContext,
+                parameters,
+                root,
+                root,
+                nodes,
+                root.getFields().keySet().iterator(),
+                result);
+
+        executionStrategyCtx.onEnd(result, null);
+        return result;
     }
 
-    private ExecutionResult execute(ExecutionContext executionContext, GraphQLExecutionNode root) {
+    private void executeImpl(ExecutionContext executionContext,
+                             ExecutionStrategyParameters parameters,
+                             ExecutionNode root,
+                             ExecutionNode curNode,
+                             Queue<ExecutionNode> queueOfNodes,
+                             Iterator<String> curFieldNames,
+                             CompletableFuture<ExecutionResult> overallResult) {
 
-        Queue<GraphQLExecutionNode> nodes = new ArrayDeque<>();
-        nodes.add(root);
-
-        while (!nodes.isEmpty()) {
-
-            GraphQLExecutionNode node = nodes.poll();
-
-            for (String fieldName : node.getFields().keySet()) {
-                List<Field> fieldList = node.getFields().get(fieldName);
-                List<GraphQLExecutionNode> childNodes = resolveField(executionContext, node.getParentType(),
-                        node.getData(), fieldName, fieldList);
-                nodes.addAll(childNodes);
-            }
+        if (!curFieldNames.hasNext() && queueOfNodes.isEmpty()) {
+            overallResult.complete(new ExecutionResultImpl(root.getParentResults().get(0).toObject(), executionContext.getErrors()));
+            return;
         }
-        return new ExecutionResultImpl(getOnlyElement(root.getData()).getParentResult(), executionContext.getErrors());
 
+        if (!curFieldNames.hasNext()) {
+            curNode = queueOfNodes.poll();
+            curFieldNames = curNode.getFields().keySet().iterator();
+        }
+
+        String fieldName = curFieldNames.next();
+        List<Field> currentField = curNode.getFields().get(fieldName);
+
+
+        //
+        // once an object is resolved from a interface / union to a node with an object type, the
+        // parent type info has effectively changed (it has got more specific), even though the path etc...
+        // has not changed
+        ExecutionTypeInfo currentParentTypeInfo = parameters.typeInfo();
+        ExecutionTypeInfo newParentTypeInfo = newTypeInfo()
+                .type(curNode.getType())
+                .fieldDefinition(currentParentTypeInfo.getFieldDefinition())
+                .path(currentParentTypeInfo.getPath())
+                .parentInfo(currentParentTypeInfo.getParentTypeInfo())
+                .build();
+
+        ExecutionPath fieldPath = curNode.getTypeInfo().getPath().segment(fieldName);
+        GraphQLFieldDefinition fieldDefinition = getFieldDef(executionContext.getGraphQLSchema(), curNode.getType(), currentField.get(0));
+
+        ExecutionTypeInfo typeInfo = newTypeInfo()
+                .type(fieldDefinition.getType())
+                .fieldDefinition(fieldDefinition)
+                .path(fieldPath)
+                .parentInfo(newParentTypeInfo)
+                .build();
+
+        ExecutionStrategyParameters newParameters = parameters
+                .transform(builder -> builder
+                        .path(fieldPath)
+                        .field(currentField)
+                        .typeInfo(typeInfo)
+                );
+
+        ExecutionNode finalCurNode = curNode;
+        Iterator<String> finalCurFieldNames = curFieldNames;
+
+        resolveField(executionContext, newParameters, fieldName, curNode)
+                .whenComplete((childNodes, exception) -> {
+                    if (exception != null) {
+                        handleNonNullException(executionContext, overallResult, exception);
+                        return;
+                    }
+                    queueOfNodes.addAll(childNodes);
+                    executeImpl(executionContext, newParameters, root, finalCurNode, queueOfNodes, finalCurFieldNames, overallResult);
+                });
     }
 
-    private GraphQLExecutionNodeDatum getOnlyElement(List<GraphQLExecutionNodeDatum> list) {
-        return list.get(0);
-    }
 
-    // Use the data.source objects to fetch
-    // Use the data.parentResult objects to put values into.  These are either primitives or empty maps
-    // If they were empty maps, we need that list of nodes to process
-
-    private List<GraphQLExecutionNode> resolveField(ExecutionContext executionContext, GraphQLObjectType parentType,
-                                                    List<GraphQLExecutionNodeDatum> nodeData, String fieldName, List<Field> fields) {
+    private CompletableFuture<List<ExecutionNode>> resolveField(ExecutionContext executionContext,
+                                                                ExecutionStrategyParameters parameters,
+                                                                String fieldName,
+                                                                ExecutionNode node) {
+        GraphQLObjectType parentType = node.getType();
+        List<Field> fields = node.getFields().get(fieldName);
 
         GraphQLFieldDefinition fieldDef = getFieldDef(executionContext.getGraphQLSchema(), parentType, fields.get(0));
-        if (fieldDef == null) {
-            return Collections.emptyList();
-        }
-        List<GraphQLExecutionNodeValue> values = fetchData(executionContext, parentType, nodeData, fields, fieldDef);
+
+        Instrumentation instrumentation = executionContext.getInstrumentation();
+        ExecutionTypeInfo typeInfo = parameters.typeInfo();
+        InstrumentationContext<ExecutionResult> fieldCtx = instrumentation.beginField(
+                new InstrumentationFieldParameters(executionContext, fieldDef, typeInfo)
+        );
+
+        CompletableFuture<FetchedValues> fetchedData = fetchData(executionContext, parameters, fieldName, node, fieldDef);
+
+        CompletableFuture<List<ExecutionNode>> result = fetchedData.thenApply((fetchedValues) -> {
+
+            Map<String, Object> argumentValues = valuesResolver.getArgumentValues(
+                    fieldDef.getArguments(), fields.get(0).getArguments(), executionContext.getVariables());
+
+            return completeValues(executionContext, fetchedValues, typeInfo, fieldName, fields, argumentValues);
+        });
+        result.whenComplete((nodes, throwable) -> fieldCtx.onEnd(null, throwable));
+        return result;
+
+    }
+
+    private CompletableFuture<FetchedValues> fetchData(ExecutionContext executionContext,
+                                                       ExecutionStrategyParameters parameters,
+                                                       String fieldName,
+                                                       ExecutionNode node,
+                                                       GraphQLFieldDefinition fieldDef) {
+        GraphQLObjectType parentType = node.getType();
+        List<Field> fields = node.getFields().get(fieldName);
+        List<MapOrList> parentResults = node.getParentResults();
 
         Map<String, Object> argumentValues = valuesResolver.getArgumentValues(
                 fieldDef.getArguments(), fields.get(0).getArguments(), executionContext.getVariables());
-        return completeValues(executionContext, parentType, values, fieldName, fields, fieldDef.getType(), argumentValues);
+
+        GraphQLOutputType fieldType = fieldDef.getType();
+        DataFetchingFieldSelectionSet fieldCollector = DataFetchingFieldSelectionSetImpl.newCollector(executionContext, fieldType, fields);
+
+        DataFetchingEnvironment environment = newDataFetchingEnvironment(executionContext)
+                .source(node.getSources())
+                .arguments(argumentValues)
+                .fieldDefinition(fieldDef)
+                .fields(fields)
+                .fieldType(fieldDef.getType())
+                .fieldTypeInfo(parameters.typeInfo())
+                .parentType(parentType)
+                .selectionSet(fieldCollector)
+                .build();
+
+        Instrumentation instrumentation = executionContext.getInstrumentation();
+        InstrumentationFieldFetchParameters instrumentationFieldFetchParameters =
+                new InstrumentationFieldFetchParameters(executionContext, fieldDef, environment);
+        InstrumentationContext<Object> fetchCtx = instrumentation.beginFieldFetch(instrumentationFieldFetchParameters);
+
+        CompletableFuture<Object> fetchedValue;
+        try {
+            DataFetcher<?> dataFetcher = instrumentation.instrumentDataFetcher(
+                    getDataFetcher(fieldDef), instrumentationFieldFetchParameters);
+            Object fetchedValueRaw = dataFetcher.get(environment);
+            fetchedValue = Async.toCompletableFuture(fetchedValueRaw);
+        } catch (Exception e) {
+            fetchedValue = new CompletableFuture<>();
+            fetchedValue.completeExceptionally(e);
+        }
+        return fetchedValue
+                .thenApply((result) -> assertResult(parentResults, result))
+                .whenComplete(fetchCtx::onEnd)
+                .handle(handleResult(executionContext, parameters, parentResults, fields, fieldDef, argumentValues, environment));
     }
 
-    /**
-     * Updates parents and returns new Nodes.
-     */
-    private List<GraphQLExecutionNode> completeValues(ExecutionContext executionContext, GraphQLObjectType parentType,
-                                                      List<GraphQLExecutionNodeValue> values, String fieldName, List<Field> fields,
-                                                      GraphQLOutputType outputType, Map<String, Object> argumentValues) {
+    private BiFunction<List<Object>, Throwable, FetchedValues> handleResult(ExecutionContext executionContext, ExecutionStrategyParameters parameters, List<MapOrList> parentResults, List<Field> fields, GraphQLFieldDefinition fieldDef, Map<String, Object> argumentValues, DataFetchingEnvironment environment) {
+        return (result, exception) -> {
+            if (exception != null) {
+                if (exception instanceof CompletionException) {
+                    exception = exception.getCause();
+                }
+                DataFetcherExceptionHandlerParameters handlerParameters = DataFetcherExceptionHandlerParameters.newExceptionParameters()
+                        .executionContext(executionContext)
+                        .dataFetchingEnvironment(environment)
+                        .argumentValues(argumentValues)
+                        .field(fields.get(0))
+                        .fieldDefinition(fieldDef)
+                        .path(parameters.path())
+                        .exception(exception)
+                        .build();
+                dataFetcherExceptionHandler.accept(handlerParameters);
+                result = Collections.nCopies(parentResults.size(), null);
+            }
+            List<Object> values = result;
+            List<FetchedValue> retVal = new ArrayList<>();
+            for (int i = 0; i < parentResults.size(); i++) {
+                Object value = unboxPossibleOptional(values.get(i));
+                retVal.add(new FetchedValue(parentResults.get(i), value));
+            }
+            return new FetchedValues(retVal, parameters.typeInfo(), parameters.path());
+        };
+    }
 
-        GraphQLType fieldType = handleNonNullType(outputType, values, parentType, fields);
+    private List<Object> assertResult(List<MapOrList> parentResults, Object result) {
+        result = convertPossibleArray(result);
+        if (result != null && !(result instanceof Iterable)) {
+            throw new BatchAssertionFailed(String.format("BatchedDataFetcher provided an invalid result: Iterable expected but got '%s'. Affected fields are set to null.", result.getClass().getName()));
+        }
+        @SuppressWarnings("unchecked")
+        Iterable<Object> iterableResult = (Iterable<Object>) result;
+        if (iterableResult == null) {
+            throw new BatchAssertionFailed("BatchedDataFetcher provided a null Iterable of result values. Affected fields are set to null.");
+        }
+        List<Object> resultList = new ArrayList<>();
+        iterableResult.forEach(resultList::add);
 
-        if (isPrimitive(fieldType)) {
-            handlePrimitives(values, fieldName, fieldType);
+        long size = resultList.size();
+        if (size != parentResults.size()) {
+            throw new BatchAssertionFailed(String.format("BatchedDataFetcher provided invalid number of result values, expected %d but got %d. Affected fields are set to null.", parentResults.size(), size));
+        }
+        return resultList;
+    }
+
+    private List<ExecutionNode> completeValues(ExecutionContext executionContext,
+                                               FetchedValues fetchedValues, ExecutionTypeInfo typeInfo,
+                                               String fieldName, List<Field> fields,
+                                               Map<String, Object> argumentValues) {
+
+        handleNonNullType(executionContext, fetchedValues);
+
+        GraphQLType unwrappedFieldType = typeInfo.getType();
+
+        if (isPrimitive(unwrappedFieldType)) {
+            handlePrimitives(fetchedValues, fieldName, unwrappedFieldType);
             return Collections.emptyList();
-        } else if (isObject(fieldType)) {
-            return handleObject(executionContext, argumentValues, values, fieldName, fields, fieldType);
-        } else if (isList(fieldType)) {
-            return handleList(executionContext, argumentValues, values, fieldName, fields, parentType, (GraphQLList) fieldType);
+        } else if (isObject(unwrappedFieldType)) {
+            return handleObject(executionContext, argumentValues, fetchedValues, fieldName, fields, typeInfo);
+        } else if (isList(unwrappedFieldType)) {
+            return handleList(executionContext, argumentValues, fetchedValues, fieldName, fields, typeInfo);
         } else {
-            throw new IllegalArgumentException("Unrecognized type: " + fieldType);
+            return Assert.assertShouldNeverHappen("can't handle type: " + unwrappedFieldType);
         }
     }
 
     @SuppressWarnings("unchecked")
-    private List<GraphQLExecutionNode> handleList(ExecutionContext executionContext, Map<String, Object> argumentValues,
-                                                  List<GraphQLExecutionNodeValue> values, String fieldName, List<Field> fields,
-                                                  GraphQLObjectType parentType, GraphQLList listType) {
+    private List<ExecutionNode> handleList(ExecutionContext executionContext, Map<String, Object> argumentValues,
+                                           FetchedValues fetchedValues, String fieldName, List<Field> fields,
+                                           ExecutionTypeInfo typeInfo) {
 
-        List<GraphQLExecutionNodeValue> flattenedNodeValues = new ArrayList<>();
+        GraphQLList listType = (GraphQLList) typeInfo.getType();
+        List<FetchedValue> flattenedValues = new ArrayList<>();
 
-        for (GraphQLExecutionNodeValue value : values) {
+        for (FetchedValue value : fetchedValues.getValues()) {
+            MapOrList mapOrList = value.getParentResult();
+
             if (value.getValue() == null) {
-                value.getResultContainer().putResult(fieldName, null);
-            } else {
-                GraphQLExecutionResultList flattenedDatum = value.getResultContainer().createAndPutEmptyChildList(
-                        fieldName);
-                for (Object rawValue : (List<Object>) value.getValue()) {
-                    flattenedNodeValues.add(new GraphQLExecutionNodeValue(flattenedDatum, rawValue));
-                }
+                mapOrList.putOrAdd(fieldName, null);
+                continue;
+            }
+
+            MapOrList listResult = mapOrList.createAndPutList(fieldName);
+            for (Object rawValue : toIterable(value.getValue())) {
+                rawValue = unboxPossibleOptional(rawValue);
+                flattenedValues.add(new FetchedValue(listResult, rawValue));
             }
         }
+        GraphQLOutputType innerSubType = (GraphQLOutputType) listType.getWrappedType();
+        ExecutionTypeInfo newTypeInfo = typeInfo.treatAs(innerSubType);
+        FetchedValues flattenedFetchedValues = new FetchedValues(flattenedValues, newTypeInfo, fetchedValues.getPath());
 
-        GraphQLOutputType subType = (GraphQLOutputType) listType.getWrappedType();
-        return completeValues(executionContext, parentType, flattenedNodeValues, fieldName, fields, subType, argumentValues);
-
+        return completeValues(executionContext, flattenedFetchedValues, newTypeInfo, fieldName, fields, argumentValues);
     }
 
     @SuppressWarnings("UnnecessaryLocalVariable")
-    private List<GraphQLExecutionNode> handleObject(ExecutionContext executionContext, Map<String, Object> argumentValues,
-                                                    List<GraphQLExecutionNodeValue> values, String fieldName, List<Field> fields, GraphQLType fieldType) {
+    private List<ExecutionNode> handleObject(ExecutionContext executionContext, Map<String, Object> argumentValues,
+                                             FetchedValues fetchedValues, String fieldName, List<Field> fields,
+                                             ExecutionTypeInfo typeInfo) {
 
-        ChildDataCollector collector = createAndPopulateChildData(executionContext, fields.get(0), values, fieldName, fieldType, argumentValues);
+        // collect list of values by actual type (needed because of interfaces and unions)
+        Map<GraphQLObjectType, List<MapOrList>> resultsByType = new LinkedHashMap<>();
+        Map<GraphQLObjectType, List<Object>> sourceByType = new LinkedHashMap<>();
 
-        List<GraphQLExecutionNode> childNodes =
-                createChildNodes(executionContext, fields, collector);
-
-        return childNodes;
-    }
-
-    private List<GraphQLExecutionNode> createChildNodes(ExecutionContext executionContext, List<Field> fields,
-                                                        ChildDataCollector collector) {
-
-        List<GraphQLExecutionNode> childNodes = new ArrayList<>();
-
-        for (ChildDataCollector.Entry entry : collector.getEntries()) {
-            Map<String, List<Field>> childFields = getChildFields(executionContext, entry.getObjectType(), fields);
-            childNodes.add(new GraphQLExecutionNode(entry.getObjectType(), childFields, entry.getData()));
-        }
-        return childNodes;
-    }
-
-    private ChildDataCollector createAndPopulateChildData(ExecutionContext executionContext, Field field, List<GraphQLExecutionNodeValue> values, String fieldName,
-                                                          GraphQLType fieldType, Map<String, Object> argumentValues) {
-        ChildDataCollector collector = new ChildDataCollector();
-        for (GraphQLExecutionNodeValue value : values) {
+        for (FetchedValue value : fetchedValues.getValues()) {
+            MapOrList mapOrList = value.getParentResult();
             if (value.getValue() == null) {
-                // We hit a null, insert the null and do not create a child
-                value.getResultContainer().putResult(fieldName, null);
-            } else {
-                GraphQLExecutionNodeDatum childDatum = value.getResultContainer().createAndPutChildDatum(fieldName, value.getValue());
-                GraphQLObjectType graphQLObjectType = getGraphQLObjectType(executionContext, field, fieldType, value.getValue(), argumentValues);
-                collector.putChildData(graphQLObjectType, childDatum);
+                mapOrList.putOrAdd(fieldName, null);
+                continue;
             }
+            MapOrList childResult = mapOrList.createAndPutMap(fieldName);
+
+            GraphQLObjectType resolvedType = getGraphQLObjectType(executionContext, fields.get(0), typeInfo.getType(), value.getValue(), argumentValues);
+            resultsByType.putIfAbsent(resolvedType, new ArrayList<>());
+            resultsByType.get(resolvedType).add(childResult);
+
+            sourceByType.putIfAbsent(resolvedType, new ArrayList<>());
+            sourceByType.get(resolvedType).add(value.getValue());
         }
-        return collector;
+
+        List<ExecutionNode> childNodes = new ArrayList<>();
+        for (GraphQLObjectType resolvedType : resultsByType.keySet()) {
+            List<MapOrList> results = resultsByType.get(resolvedType);
+            List<Object> sources = sourceByType.get(resolvedType);
+            Map<String, List<Field>> childFields = getChildFields(executionContext, resolvedType, fields);
+
+            ExecutionTypeInfo newTypeInfo = typeInfo.treatAs(resolvedType);
+
+            childNodes.add(new ExecutionNode(resolvedType, newTypeInfo, childFields, results, sources));
+        }
+        return childNodes;
     }
 
-    private GraphQLType handleNonNullType(GraphQLType fieldType, List<GraphQLExecutionNodeValue> values,
-            /*Nullable*/ GraphQLObjectType parentType, /*Nullable*/ List<Field> fields) {
-        if (isNonNull(fieldType)) {
-            for (GraphQLExecutionNodeValue value : values) {
-                if (value.getValue() == null) {
-                    throw new GraphQLException("Found null value for non-null type with parent: '"
-                            + parentType.getName() + "' for fields: " + fields);
-                }
-            }
-            while (isNonNull(fieldType)) {
-                fieldType = ((GraphQLNonNull) fieldType).getWrappedType();
-            }
-        }
-        return fieldType;
-    }
 
-    private boolean isNonNull(GraphQLType fieldType) {
-        return fieldType instanceof GraphQLNonNull;
+    private void handleNonNullType(ExecutionContext executionContext, FetchedValues fetchedValues) {
+
+        ExecutionTypeInfo typeInfo = fetchedValues.getExecutionTypeInfo();
+        NonNullableFieldValidator nonNullableFieldValidator = new NonNullableFieldValidator(executionContext, typeInfo);
+        ExecutionPath path = fetchedValues.getPath();
+        for (FetchedValue value : fetchedValues.getValues()) {
+            nonNullableFieldValidator.validate(path, value.getValue());
+        }
     }
 
     private Map<String, List<Field>> getChildFields(ExecutionContext executionContext, GraphQLObjectType resolvedType,
                                                     List<Field> fields) {
 
-        FieldCollectorParameters collectorParameters = newParameters(executionContext.getGraphQLSchema(), resolvedType)
+        FieldCollectorParameters collectorParameters = newParameters()
+                .schema(executionContext.getGraphQLSchema())
+                .objectType(resolvedType)
                 .fragments(executionContext.getFragmentsByName())
                 .variables(executionContext.getVariables())
                 .build();
@@ -244,15 +432,14 @@ public class BatchedExecutionStrategy extends ExecutionStrategy {
         return resolvedType;
     }
 
-    private void handlePrimitives(List<GraphQLExecutionNodeValue> values, String fieldName,
-                                  GraphQLType type) {
-        for (GraphQLExecutionNodeValue value : values) {
-            Object coercedValue = coerce(type, value.getValue());
+    private void handlePrimitives(FetchedValues fetchedValues, String fieldName, GraphQLType fieldType) {
+        for (FetchedValue value : fetchedValues.getValues()) {
+            Object coercedValue = coerce(fieldType, value.getValue());
             //6.6.1 http://facebook.github.io/graphql/#sec-Field-entries
             if (coercedValue instanceof Double && ((Double) coercedValue).isNaN()) {
                 coercedValue = null;
             }
-            value.getResultContainer().putResult(fieldName, coercedValue);
+            value.getParentResult().putOrAdd(fieldName, coercedValue);
         }
     }
 
@@ -279,47 +466,14 @@ public class BatchedExecutionStrategy extends ExecutionStrategy {
                 type instanceof GraphQLUnionType;
     }
 
-    @SuppressWarnings("unchecked")
-    private List<GraphQLExecutionNodeValue> fetchData(ExecutionContext executionContext, GraphQLObjectType parentType,
-                                                      List<GraphQLExecutionNodeDatum> nodeData, List<Field> fields, GraphQLFieldDefinition fieldDef) {
 
-        Map<String, Object> argumentValues = valuesResolver.getArgumentValues(
-                fieldDef.getArguments(), fields.get(0).getArguments(), executionContext.getVariables());
-        List<Object> sources = new ArrayList<>();
-        for (GraphQLExecutionNodeDatum n : nodeData) {
-            sources.add(n.getSource());
+    private Object convertPossibleArray(Object result) {
+        if (result != null && result.getClass().isArray()) {
+            return IntStream.range(0, Array.getLength(result))
+                    .mapToObj(i -> Array.get(result, i))
+                    .collect(toList());
         }
-
-        GraphQLOutputType fieldType = fieldDef.getType();
-        DataFetchingFieldSelectionSet fieldCollector = DataFetchingFieldSelectionSetImpl.newCollector(executionContext, fieldType, fields);
-
-        DataFetchingEnvironment environment = new DataFetchingEnvironmentImpl(
-                sources,
-                argumentValues,
-                executionContext.getContext(),
-                executionContext.getRoot(),
-                fields,
-                fieldDef.getType(),
-                parentType,
-                executionContext.getGraphQLSchema(),
-                executionContext.getFragmentsByName(),
-                executionContext.getExecutionId(),
-                fieldCollector);
-
-        List<Object> values;
-        try {
-            values = (List<Object>) getDataFetcher(fieldDef).get(environment);
-        } catch (Exception e) {
-            values = new ArrayList<>(nodeData.size());
-            log.warn("Exception while fetching data", e);
-            handleDataFetchingException(executionContext, fieldDef, argumentValues, e);
-        }
-
-        List<GraphQLExecutionNodeValue> retVal = new ArrayList<>();
-        for (int i = 0; i < nodeData.size(); i++) {
-            retVal.add(new GraphQLExecutionNodeValue(nodeData.get(i), values.get(i)));
-        }
-        return retVal;
+        return result;
     }
 
     private BatchedDataFetcher getDataFetcher(GraphQLFieldDefinition fieldDef) {

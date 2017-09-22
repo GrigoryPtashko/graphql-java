@@ -1,4 +1,6 @@
 *.iml
+*.ipr
+*.iws
 .idea
 .gradle
 build
@@ -6,3 +8,4 @@ classes
 _site
 generated-src/
 .svn
+out

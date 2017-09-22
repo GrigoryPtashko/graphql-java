@@ -2,6 +2,7 @@ package graphql.schema;
 
 import graphql.PublicApi;
 import graphql.execution.ExecutionId;
+import graphql.execution.ExecutionTypeInfo;
 import graphql.language.Field;
 import graphql.language.FragmentDefinition;
 
@@ -21,6 +22,7 @@ public interface DataFetchingEnvironment {
      * For the root query, it is equal to {{@link DataFetchingEnvironment#getRoot}
      *
      * @param <T> you decide what type it is
+     *
      * @return can be null for the root query, otherwise it is never null
      */
     <T> T getSource();
@@ -34,6 +36,7 @@ public interface DataFetchingEnvironment {
      * Returns true of the named argument is present
      *
      * @param name the name of the argument
+     *
      * @return true of the named argument is present
      */
     boolean containsArgument(String name);
@@ -43,6 +46,7 @@ public interface DataFetchingEnvironment {
      *
      * @param name the name of the argument
      * @param <T>  you decide what type it is
+     *
      * @return the named argument or null if its not [present
      */
     <T> T getArgument(String name);
@@ -54,6 +58,7 @@ public interface DataFetchingEnvironment {
      * This is a info object which is provided to all DataFetcher, but never used by graphql-java itself.
      *
      * @param <T> you decide what type it is
+     *
      * @return can be null
      */
     <T> T getContext();
@@ -61,10 +66,17 @@ public interface DataFetchingEnvironment {
     /**
      * This is the source object for the root query.
      *
-     * @param <T>  you decide what type it is
+     * @param <T> you decide what type it is
+     *
      * @return can be null
      */
     <T> T getRoot();
+
+    /**
+     * @return the definition of the current field
+     */
+    GraphQLFieldDefinition getFieldDefinition();
+
 
     /**
      * @return the list of fields currently in query context
@@ -75,6 +87,12 @@ public interface DataFetchingEnvironment {
      * @return graphql type of the current field
      */
     GraphQLOutputType getFieldType();
+
+
+    /**
+     * @return the field {@link ExecutionTypeInfo} for the current data fetch operation
+     */
+    ExecutionTypeInfo getFieldTypeInfo();
 
     /**
      * @return the type of the parent of the current field
@@ -87,17 +105,17 @@ public interface DataFetchingEnvironment {
     GraphQLSchema getGraphQLSchema();
 
     /**
-     * @return the {@link FragmentDefinition} map for the current operation
+     * @return the {@link FragmentDefinition} map for the current data fetch operation
      */
     Map<String, FragmentDefinition> getFragmentsByName();
 
     /**
-     * @return the {@link ExecutionId} for the current operation
+     * @return the {@link ExecutionId} for the current data fetch operation
      */
     ExecutionId getExecutionId();
 
     /**
-     * @return the {@link DataFetchingFieldSelectionSet} for the current operation
+     * @return the {@link DataFetchingFieldSelectionSet} for the current data fetch operation
      */
     DataFetchingFieldSelectionSet getSelectionSet();
 }

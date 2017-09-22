@@ -1,7 +1,8 @@
 package graphql.schema.idl
 
-import graphql.TestUtil
 import graphql.schema.GraphQLEnumType
+import graphql.schema.GraphQLFieldDefinition
+import graphql.schema.GraphQLFieldsContainer
 import graphql.schema.GraphQLInputObjectType
 import graphql.schema.GraphQLInterfaceType
 import graphql.schema.GraphQLList
@@ -12,6 +13,7 @@ import graphql.schema.GraphQLType
 import graphql.schema.GraphQLUnionType
 import graphql.schema.idl.errors.NotAnInputTypeError
 import graphql.schema.idl.errors.NotAnOutputTypeError
+import graphql.schema.visibility.GraphqlFieldVisibility
 import spock.lang.Specification
 
 import java.util.function.UnaryOperator
@@ -19,6 +21,7 @@ import java.util.function.UnaryOperator
 import static graphql.Scalars.GraphQLBoolean
 import static graphql.Scalars.GraphQLInt
 import static graphql.Scalars.GraphQLString
+import static graphql.TestUtil.schema
 
 class SchemaGeneratorTest extends Specification {
 
@@ -73,10 +76,13 @@ class SchemaGeneratorTest extends Specification {
         //}
         GraphQLObjectType postType = schema.getType("Post") as GraphQLObjectType
         assert postType.name == "Post"
+        assert postType.getDefinition().getName() == "Post"
         //
         // make sure that wrapped non null fields stay that way. we had a bug where decorated types lost their decoration
         assert postType.getFieldDefinition("author").type instanceof GraphQLNonNull
         assert (postType.getFieldDefinition("author").type as GraphQLNonNull).wrappedType.name == "Author"
+
+        assert postType.getFieldDefinition("author").getDefinition().getName() == "author"
 
         //type Author {
         //    # the ! means that every author object _must_ have an id
@@ -114,8 +120,12 @@ class SchemaGeneratorTest extends Specification {
         assert upvotePostFieldArg.type instanceof GraphQLNonNull
         assert unwrap(upvotePostFieldArg.type).name == "PostUpVote"
 
-        assert (unwrap(upvotePostFieldArg.type) as GraphQLInputObjectType).getField("postId").type.name == "ID"
-        assert (unwrap(upvotePostFieldArg.type) as GraphQLInputObjectType).getField("votes").type.name == "Int"
+        def inputObjectType = unwrap(upvotePostFieldArg.type) as GraphQLInputObjectType
+        assert inputObjectType.getDefinition().getName() == "PostUpVote"
+
+        assert inputObjectType.getField("postId").type.name == "ID"
+        assert inputObjectType.getField("votes").type.name == "Int"
+        assert inputObjectType.getField("votes").getDefinition().name == "votes"
 
         def queryType = schema.getQueryType()
         assert queryType.description == " the schema allows the following query\n to be made"
@@ -170,7 +180,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(schemaSpec)
+        def schema = schema(schemaSpec)
 
 
         expect:
@@ -271,7 +281,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
 
         expect:
@@ -308,7 +318,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
 
         expect:
@@ -345,7 +355,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
@@ -381,13 +391,16 @@ class SchemaGeneratorTest extends Specification {
 
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
         def foobar = schema.getQueryType().getFieldDefinition("foobar")
         foobar.type instanceof GraphQLUnionType
-        def types = ((GraphQLUnionType) foobar.type).getTypes()
+        def unionType = foobar.type as GraphQLUnionType
+        unionType.getName() == "FooOrBar"
+        unionType.getDefinition().getName() == "FooOrBar"
+        def types = unionType.getTypes()
         types.size() == 2
         types[0] instanceof GraphQLObjectType
         types[1] instanceof GraphQLObjectType
@@ -414,15 +427,20 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
         def rgbField = schema.getQueryType().getFieldDefinition("rgb")
         rgbField.type instanceof GraphQLEnumType
-        (rgbField.type as GraphQLEnumType).values.get(0).getValue() == "RED"
-        (rgbField.type as GraphQLEnumType).values.get(1).getValue() == "GREEN"
-        (rgbField.type as GraphQLEnumType).values.get(2).getValue() == "BLUE"
+
+        def enumType = rgbField.type as GraphQLEnumType
+        enumType.getName() == "RGB"
+        enumType.getDefinition().getName() == "RGB"
+
+        enumType.values.get(0).getValue() == "RED"
+        enumType.values.get(1).getValue() == "GREEN"
+        enumType.values.get(2).getValue() == "BLUE"
 
     }
 
@@ -447,11 +465,14 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
-        schema.queryType.interfaces[0].name == "Foo"
+        def interfaceType = schema.queryType.interfaces[0] as GraphQLInterfaceType
+        interfaceType.name == "Foo"
+        interfaceType.getDefinition().getName() == "Foo"
+
         schema.queryType.fieldDefinitions[0].name == "is_foo"
         schema.queryType.fieldDefinitions[0].type.name == "Boolean"
         schema.queryType.fieldDefinitions[1].name == "is_bar"
@@ -507,7 +528,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
@@ -570,7 +591,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
@@ -605,7 +626,7 @@ class SchemaGeneratorTest extends Specification {
                 family: Boolean
             }
         """
-        TestUtil.schema(spec)
+        schema(spec)
 
         then:
         def err = thrown(NotAnInputTypeError.class)
@@ -630,7 +651,7 @@ class SchemaGeneratorTest extends Specification {
                 family: Boolean
             }
         """
-        TestUtil.schema(spec)
+        schema(spec)
 
         then:
         def err = thrown(NotAnOutputTypeError.class)
@@ -653,7 +674,7 @@ class SchemaGeneratorTest extends Specification {
             }
             """
         when:
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         then:
         schema.getSubscriptionType().name == "Subscription"
@@ -695,7 +716,7 @@ class SchemaGeneratorTest extends Specification {
         }
         """
         when:
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         then:
         schema.getQueryType().description == "description 1\n description 2"
@@ -738,7 +759,7 @@ class SchemaGeneratorTest extends Specification {
         }
         """
         when:
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         then:
         schema.getQueryType().description == " description 1\n description 2"
@@ -772,7 +793,7 @@ class SchemaGeneratorTest extends Specification {
         def wiring = RuntimeWiring.newRuntimeWiring()
                 .type("Enum", { TypeRuntimeWiring.Builder it -> it.enumValues(enumValuesProvider) } as UnaryOperator)
                 .build()
-        def schema = TestUtil.schema(spec, wiring)
+        def schema = schema(spec, wiring)
         GraphQLEnumType enumType = schema.getType("Enum") as GraphQLEnumType
 
         then:
@@ -797,7 +818,7 @@ class SchemaGeneratorTest extends Specification {
         }
         """
         when:
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         GraphQLEnumType enumType = schema.getType("Enum") as GraphQLEnumType
 
@@ -806,6 +827,41 @@ class SchemaGeneratorTest extends Specification {
         enumType.getValue("B").value == "B"
         enumType.getValue("C").value == "C"
 
+    }
+
+    def "deprecated directive is supported"() {
+        given:
+        def spec = """
+        type Query {
+            foo: Enum @deprecated(reason : "foo reason")
+            bar: String @deprecated
+            baz: String
+        }
+        enum Enum {
+            foo @deprecated(reason : "foo reason")
+            bar @deprecated
+            baz 
+        }
+        schema {
+            query: Query
+        }
+        """
+        when:
+        def wiring = RuntimeWiring.newRuntimeWiring()
+                .build()
+
+        def schema = schema(spec, wiring)
+        GraphQLEnumType enumType = schema.getType("Enum") as GraphQLEnumType
+        GraphQLObjectType queryType = schema.getType("Query") as GraphQLObjectType
+
+        then:
+        enumType.getValue("foo").getDeprecationReason() == "foo reason"
+        enumType.getValue("bar").getDeprecationReason() == "No longer supported" // default according to spec
+        !enumType.getValue("baz").isDeprecated()
+
+        queryType.getFieldDefinition("foo").getDeprecationReason() == "foo reason"
+        queryType.getFieldDefinition("bar").getDeprecationReason() == "No longer supported" // default according to spec
+        !queryType.getFieldDefinition("baz").isDeprecated()
     }
 
 
@@ -825,7 +881,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
@@ -853,7 +909,7 @@ class SchemaGeneratorTest extends Specification {
             }
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
@@ -901,7 +957,7 @@ class SchemaGeneratorTest extends Specification {
             union UnReferencedD = ReferencedA | ReferencedB  
         """
 
-        def schema = TestUtil.schema(spec)
+        def schema = schema(spec)
 
         expect:
 
@@ -911,5 +967,72 @@ class SchemaGeneratorTest extends Specification {
         schema.getType("UnReferencedB") instanceof GraphQLInputObjectType
         schema.getType("UnReferencedC") instanceof GraphQLInterfaceType
         schema.getType("UnReferencedD") instanceof GraphQLUnionType
+    }
+
+    def "scalar default value is parsed"() {
+        def spec = """
+            type Query {
+              field(arg1 : Int! = 10, arg2 : [Int!]! = [20]) : String
+            }
+        """
+
+        def schema = schema(spec)
+        schema.getType("Query") instanceof GraphQLObjectType
+        GraphQLObjectType query = schema.getType("Query") as GraphQLObjectType
+        Object arg1 = query.getFieldDefinition("field").getArgument("arg1").defaultValue
+        Object arg2 = query.getFieldDefinition("field").getArgument("arg2").defaultValue
+
+        expect:
+        arg1 instanceof Integer
+        arg2 instanceof List
+        (arg2 as List).get(0) instanceof Integer
+    }
+
+    def "input object default value is parsed"() {
+        def spec = """
+            input InputObject {
+                str : String
+                num : Int
+            }
+            type Query {
+              field(arg : InputObject = {str : "string", num : 100}) : String
+            }
+        """
+
+        def schema = schema(spec)
+        schema.getType("Query") instanceof GraphQLObjectType
+        GraphQLObjectType query = schema.getType("Query") as GraphQLObjectType
+        Object arg = query.getFieldDefinition("field").getArgument("arg").defaultValue as Map
+
+        expect:
+        arg["str"] instanceof String
+        arg["num"] instanceof Integer
+    }
+
+    def "field visibility is used"() {
+        def spec = """
+            type Query {
+              field : String
+            }
+        """
+
+        GraphqlFieldVisibility fieldVisibility = new GraphqlFieldVisibility() {
+            @Override
+            List<GraphQLFieldDefinition> getFieldDefinitions(GraphQLFieldsContainer fieldsContainer) {
+                return null
+            }
+
+            @Override
+            GraphQLFieldDefinition getFieldDefinition(GraphQLFieldsContainer fieldsContainer, String fieldName) {
+                return null
+            }
+        }
+
+        def schema = schema(spec, RuntimeWiring.newRuntimeWiring().fieldVisibility(fieldVisibility).build())
+
+        expect:
+
+        schema.getFieldVisibility() == fieldVisibility
+
     }
 }

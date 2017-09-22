@@ -2,7 +2,6 @@ package graphql.schema;
 
 
 import graphql.AssertException;
-import graphql.GraphQLException;
 import graphql.Internal;
 import graphql.PublicApi;
 import graphql.language.EnumTypeDefinition;
@@ -17,7 +16,7 @@ import static graphql.Assert.assertNotNull;
 import static graphql.Assert.assertValidName;
 
 @PublicApi
-public class GraphQLEnumType implements GraphQLType, GraphQLInputType, GraphQLOutputType, GraphQLUnmodifiedType {
+public class GraphQLEnumType implements GraphQLType, GraphQLInputType, GraphQLOutputType, GraphQLUnmodifiedType, GraphQLNullableType {
 
     private final String name;
     private final String description;
@@ -80,16 +79,28 @@ public class GraphQLEnumType implements GraphQLType, GraphQLInputType, GraphQLOu
     private Object getValueByName(Object value) {
         GraphQLEnumValueDefinition enumValueDefinition = valueDefinitionMap.get(value.toString());
         if (enumValueDefinition != null) return enumValueDefinition.getValue();
-        throw new GraphQLException("Invalid input for Enum '" + name + "'. No value found for name " + value.toString());
+        throw new CoercingParseValueException("Invalid input for Enum '" + name + "'. No value found for name '" + value.toString() + "'");
     }
 
     private Object getNameByValue(Object value) {
         for (GraphQLEnumValueDefinition valueDefinition : valueDefinitionMap.values()) {
-            if (value.equals(valueDefinition.getValue())) return valueDefinition.getName();
+            Object definitionValue = valueDefinition.getValue();
+            if (value.equals(definitionValue)) {
+                return valueDefinition.getName();
+            }
         }
-        throw new GraphQLException("Invalid input for Enum '" + name + "'. Unknown value " + value);
+        // ok we didn't match on pure object.equals().  Lets try the Java enum strategy
+        if (value instanceof Enum) {
+            String enumNameValue = ((Enum<?>) value).name();
+            for (GraphQLEnumValueDefinition valueDefinition : valueDefinitionMap.values()) {
+                Object definitionValue = String.valueOf(valueDefinition.getValue());
+                if (enumNameValue.equals(definitionValue)) {
+                    return valueDefinition.getName();
+                }
+            }
+        }
+        throw new CoercingSerializeException("Invalid input for Enum '" + name + "'. Unknown value '" + value + "'");
     }
-
 
     public String getName() {
         return name;

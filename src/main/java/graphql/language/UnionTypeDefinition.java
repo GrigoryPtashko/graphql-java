@@ -3,6 +3,9 @@ package graphql.language;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+
+import static graphql.language.NodeUtil.directivesByName;
 
 public class UnionTypeDefinition extends AbstractNode implements TypeDefinition {
     private String name;
@@ -16,6 +19,15 @@ public class UnionTypeDefinition extends AbstractNode implements TypeDefinition 
     public List<Directive> getDirectives() {
         return directives;
     }
+
+    public Map<String, Directive> getDirectivesByName() {
+        return directivesByName(directives);
+    }
+
+    public Directive getDirective(String directiveName) {
+        return getDirectivesByName().get(directiveName);
+    }
+
 
     public List<Type> getMemberTypes() {
         return memberTypes;
@@ -41,9 +53,9 @@ public class UnionTypeDefinition extends AbstractNode implements TypeDefinition 
 
         UnionTypeDefinition that = (UnionTypeDefinition) o;
 
-        if ( null == name ) {
-            if ( null != that.name ) return false;
-        } else if ( !name.equals(that.name) ) {
+        if (null == name) {
+            if (null != that.name) return false;
+        } else if (!name.equals(that.name)) {
             return false;
         }
         return true;

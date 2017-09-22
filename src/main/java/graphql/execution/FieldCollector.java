@@ -118,9 +118,7 @@ public class FieldCollector {
             return;
         }
         String name = getFieldEntryKey(field);
-        if (!fields.containsKey(name)) {
-            fields.put(name, new ArrayList<>());
-        }
+        fields.putIfAbsent(name, new ArrayList<>());
         fields.get(name).add(field);
     }
 

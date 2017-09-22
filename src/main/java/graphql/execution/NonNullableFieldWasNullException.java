@@ -1,44 +1,60 @@
 package graphql.execution;
 
-import graphql.ErrorType;
-import graphql.GraphQLError;
-import graphql.language.SourceLocation;
-
-import java.util.List;
+import static graphql.Assert.assertNotNull;
 
 /**
  * See (http://facebook.github.io/graphql/#sec-Errors-and-Non-Nullability), but if a non nullable field
  * actually resolves to a null value and the parent type is nullable then the parent must in fact become null
  * so we use exceptions to indicate this special case
  */
-public class NonNullableFieldWasNullException extends RuntimeException implements GraphQLError {
+public class NonNullableFieldWasNullException extends RuntimeException {
 
-    private final TypeInfo typeInfo;
+    private final ExecutionTypeInfo typeInfo;
+    private final ExecutionPath path;
 
 
-    public NonNullableFieldWasNullException(TypeInfo typeInfo) {
-        super(buildMsg(typeInfo));
+    public NonNullableFieldWasNullException(ExecutionTypeInfo typeInfo, ExecutionPath path) {
+        super(
+                mkMessage(assertNotNull(typeInfo),
+                        assertNotNull(path))
+        );
         this.typeInfo = typeInfo;
+        this.path = path;
     }
 
-    private static String buildMsg(TypeInfo typeInfo) {
+    public NonNullableFieldWasNullException(NonNullableFieldWasNullException previousException) {
+        super(
+                mkMessage(
+                        assertNotNull(previousException.typeInfo.getParentTypeInfo()),
+                        assertNotNull(previousException.typeInfo.getParentTypeInfo().getPath())
+                ),
+                previousException
+        );
+        this.typeInfo = previousException.typeInfo.getParentTypeInfo();
+        this.path = previousException.typeInfo.getParentTypeInfo().getPath();
+    }
+
+
+    private static String mkMessage(ExecutionTypeInfo typeInfo, ExecutionPath path) {
         if (typeInfo.hasParentType()) {
-            return String.format("Cannot return null for non-nullable type: '%s' within parent '%s'", typeInfo.type().getName(), typeInfo.parentTypeInfo().type().getName());
+            return String.format("Cannot return null for non-nullable type: '%s' within parent '%s' (%s)", typeInfo.getType().getName(), typeInfo.getParentTypeInfo().getType().getName(), path);
         }
-        return String.format("Cannot return null for non-nullable type: '%s' ", typeInfo.type().getName());
+        return String.format("Cannot return null for non-nullable type: '%s' (%s)", typeInfo.getType().getName(), path);
     }
 
-    public TypeInfo getTypeInfo() {
+    public ExecutionTypeInfo getTypeInfo() {
         return typeInfo;
     }
 
-    @Override
-    public List<SourceLocation> getLocations() {
-        return null;
+    public ExecutionPath getPath() {
+        return path;
     }
 
     @Override
-    public ErrorType getErrorType() {
-        return null;
+    public String toString() {
+        return "NonNullableFieldWasNullException{" +
+                " path=" + path +
+                " typeInfo=" + typeInfo +
+                '}';
     }
 }

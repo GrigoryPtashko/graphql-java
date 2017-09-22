@@ -4,6 +4,7 @@ import graphql.ExecutionInput;
 import graphql.ExecutionResult;
 import graphql.GraphQL;
 import graphql.StarWarsData;
+import graphql.execution.instrumentation.tracing.TracingInstrumentation;
 import graphql.schema.GraphQLSchema;
 import graphql.schema.idl.RuntimeWiring;
 import graphql.schema.idl.SchemaGenerator;
@@ -28,7 +29,7 @@ import static graphql.schema.idl.TypeRuntimeWiring.newTypeWiring;
 
 /**
  * An very simple example of serving a qraphql schema over http.
- *
+ * <p>
  * More info can be found here : http://graphql.org/learn/serving-over-http/
  */
 public class HttpMain extends AbstractHandler {
@@ -53,6 +54,9 @@ public class HttpMain extends AbstractHandler {
         if ("/graphql".equals(target) || "/".equals(target)) {
             handleStarWars(request, response);
         }
+        if (target.startsWith("/executionresult")) {
+            new ExecutionResultJSONTesting(target, response);
+        }
         baseRequest.setHandled(true);
     }
 
@@ -68,9 +72,9 @@ public class HttpMain extends AbstractHandler {
         }
 
         ExecutionInput.Builder executionInput = newExecutionInput()
-                .requestString(parameters.getQuery())
+                .query(parameters.getQuery())
                 .operationName(parameters.getOperationName())
-                .arguments(parameters.getVariables());
+                .variables(parameters.getVariables());
 
         //
         // the context object is something that means something to down stream code.  It is instructions
@@ -93,7 +97,11 @@ public class HttpMain extends AbstractHandler {
         GraphQLSchema schema = buildStarWarsSchema();
 
         // finally you build a runtime graphql object and execute the query
-        GraphQL graphQL = GraphQL.newGraphQL(schema).build();
+        GraphQL graphQL = GraphQL
+                .newGraphQL(schema)
+                // instrumentation is pluggable
+                .instrumentation(new TracingInstrumentation())
+                .build();
         ExecutionResult executionResult = graphQL.execute(executionInput.build());
 
         returnAsJson(httpResponse, executionResult);
@@ -103,7 +111,7 @@ public class HttpMain extends AbstractHandler {
     private void returnAsJson(HttpServletResponse response, ExecutionResult executionResult) throws IOException {
         response.setContentType("application/json");
         response.setStatus(HttpServletResponse.SC_OK);
-        JsonKit.toJson(response, executionResult);
+        JsonKit.toJson(response, executionResult.toSpecification());
     }
 
     private GraphQLSchema buildStarWarsSchema() {

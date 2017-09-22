@@ -3,9 +3,12 @@ package graphql.schema.validation;
 import graphql.schema.GraphQLArgument;
 import graphql.schema.GraphQLFieldDefinition;
 import graphql.schema.GraphQLInterfaceType;
+import graphql.schema.GraphQLList;
+import graphql.schema.GraphQLNonNull;
 import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLOutputType;
 import graphql.schema.GraphQLType;
+import graphql.schema.GraphQLUnionType;
 
 import java.util.List;
 import java.util.Objects;
@@ -31,42 +34,41 @@ public class ObjectsImplementInterfaces implements SchemaValidationRule {
         }
     }
 
-    // visible for testing
-    private void check(GraphQLObjectType objectTyoe, SchemaValidationErrorCollector validationErrorCollector) {
-        List<GraphQLOutputType> interfaces = objectTyoe.getInterfaces();
+    private void check(GraphQLObjectType objectType, SchemaValidationErrorCollector validationErrorCollector) {
+        List<GraphQLOutputType> interfaces = objectType.getInterfaces();
         interfaces.forEach(interfaceType -> {
             // we have resolved the interfaces at this point and hence the cast is ok
-            checkObjectImplementsInterface(objectTyoe, (GraphQLInterfaceType) interfaceType, validationErrorCollector);
+            checkObjectImplementsInterface(objectType, (GraphQLInterfaceType) interfaceType, validationErrorCollector);
         });
 
     }
 
-    private void checkObjectImplementsInterface(GraphQLObjectType objectTyoe, GraphQLInterfaceType interfaceType, SchemaValidationErrorCollector validationErrorCollector) {
+    // this deliberately has open field visibility here since its validating the schema
+    // when completely open
+    private void checkObjectImplementsInterface(GraphQLObjectType objectType, GraphQLInterfaceType interfaceType, SchemaValidationErrorCollector validationErrorCollector) {
         List<GraphQLFieldDefinition> fieldDefinitions = interfaceType.getFieldDefinitions();
         for (GraphQLFieldDefinition interfaceFieldDef : fieldDefinitions) {
-            GraphQLFieldDefinition objectFieldDef = objectTyoe.getFieldDefinition(interfaceFieldDef.getName());
+            GraphQLFieldDefinition objectFieldDef = objectType.getFieldDefinition(interfaceFieldDef.getName());
             if (objectFieldDef == null) {
                 validationErrorCollector.addError(
                         error(format("object type '%s' does not implement interface '%s' because field '%s' is missing",
-                                objectTyoe.getName(), interfaceType.getName(), interfaceFieldDef.getName())));
+                                objectType.getName(), interfaceType.getName(), interfaceFieldDef.getName())));
             } else {
-                checkFieldTypeEquivalence(objectTyoe, interfaceType, validationErrorCollector, interfaceFieldDef, objectFieldDef);
+                checkFieldTypeCompatibility(objectType, interfaceType, validationErrorCollector, interfaceFieldDef, objectFieldDef);
             }
         }
     }
 
-    private void checkFieldTypeEquivalence(GraphQLObjectType objectTyoe, GraphQLInterfaceType interfaceType, SchemaValidationErrorCollector validationErrorCollector, GraphQLFieldDefinition interfaceFieldDef, GraphQLFieldDefinition objectFieldDef) {
-        // the reference implementation has a full but complicated abstract type equivalence check
-        // this is not that but we can add that later.  It does cover the major cases however
+    private void checkFieldTypeCompatibility(GraphQLObjectType objectType, GraphQLInterfaceType interfaceType, SchemaValidationErrorCollector validationErrorCollector, GraphQLFieldDefinition interfaceFieldDef, GraphQLFieldDefinition objectFieldDef) {
         String interfaceFieldDefStr = getUnwrappedTypeName(interfaceFieldDef.getType());
         String objectFieldDefStr = getUnwrappedTypeName(objectFieldDef.getType());
 
-        if (!interfaceFieldDefStr.equals(objectFieldDefStr)) {
+        if (!isCompatible(interfaceFieldDef.getType(), objectFieldDef.getType())) {
             validationErrorCollector.addError(
                     error(format("object type '%s' does not implement interface '%s' because field '%s' is defined as '%s' type and not as '%s' type",
-                            objectTyoe.getName(), interfaceType.getName(), interfaceFieldDef.getName(), objectFieldDefStr, interfaceFieldDefStr)));
+                            objectType.getName(), interfaceType.getName(), interfaceFieldDef.getName(), objectFieldDefStr, interfaceFieldDefStr)));
         } else {
-            checkFieldArgumentEquivalence(objectTyoe, interfaceType, validationErrorCollector, interfaceFieldDef, objectFieldDef);
+            checkFieldArgumentEquivalence(objectType, interfaceType, validationErrorCollector, interfaceFieldDef, objectFieldDef);
         }
     }
 
@@ -112,6 +114,39 @@ public class ObjectsImplementInterfaces implements SchemaValidationRule {
 
     private SchemaValidationError error(String msg) {
         return new SchemaValidationError(ObjectDoesNotImplementItsInterfaces, msg);
+    }
+
+    boolean isCompatible(GraphQLOutputType a, GraphQLOutputType b) {
+        if (isSameType(a, b)) {
+            return true;
+        } else if (a instanceof GraphQLUnionType) {
+            return objectIsMemberOfUnion((GraphQLUnionType) a, b);
+        } else if (a instanceof GraphQLInterfaceType && b instanceof GraphQLObjectType) {
+            return objectImplementsInterface((GraphQLInterfaceType) a, (GraphQLObjectType) b);
+        } else if (a instanceof GraphQLList && b instanceof GraphQLList) {
+            GraphQLOutputType wrappedA = (GraphQLOutputType) ((GraphQLList) a).getWrappedType();
+            GraphQLOutputType wrappedB = (GraphQLOutputType) ((GraphQLList) b).getWrappedType();
+            return isCompatible(wrappedA, wrappedB);
+        } else if (b instanceof GraphQLNonNull) {
+            GraphQLOutputType wrappedB = (GraphQLOutputType) ((GraphQLNonNull) b).getWrappedType();
+            return isCompatible(a, wrappedB);
+        } else {
+            return false;
+        }
+    }
+
+    boolean isSameType(GraphQLOutputType a, GraphQLOutputType b) {
+        String aDefString = getUnwrappedTypeName(a);
+        String bDefString = getUnwrappedTypeName(b);
+        return aDefString.equals(bDefString);
+    }
+
+    boolean objectImplementsInterface(GraphQLInterfaceType interfaceType, GraphQLObjectType objectType) {
+        return objectType.getInterfaces().contains(interfaceType);
+    }
+
+    boolean objectIsMemberOfUnion(GraphQLUnionType unionType, GraphQLOutputType objectType) {
+        return unionType.getTypes().contains(objectType);
     }
 
 }

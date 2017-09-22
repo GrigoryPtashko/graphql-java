@@ -4,12 +4,16 @@ import graphql.ExecutionResult;
 import graphql.ExecutionResultImpl;
 import graphql.GraphQLException;
 import graphql.PublicApi;
+import graphql.execution.instrumentation.InstrumentationContext;
+import graphql.execution.instrumentation.parameters.InstrumentationExecutionStrategyParameters;
 import graphql.language.Field;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -23,9 +27,9 @@ import java.util.concurrent.Future;
  * <li>1. The underlying {@link java.util.concurrent.ThreadPoolExecutor} MUST have a reasonable {@code maximumPoolSize}
  * <li>2. The underlying {@link java.util.concurrent.ThreadPoolExecutor} SHALL NOT use its task queue.
  * </ul>
- * 
+ *
  * <p>Failure to follow 1. and 2. can result in a very large number of threads created or hanging. (deadlock)</p>
- * 
+ *
  * See {@code graphql.execution.ExecutorServiceExecutionStrategyTest} for example usage.
  */
 @PublicApi
@@ -34,30 +38,57 @@ public class ExecutorServiceExecutionStrategy extends ExecutionStrategy {
     ExecutorService executorService;
 
     public ExecutorServiceExecutionStrategy(ExecutorService executorService) {
+        this(executorService, new SimpleDataFetcherExceptionHandler());
+    }
+
+    public ExecutorServiceExecutionStrategy(ExecutorService executorService, DataFetcherExceptionHandler dataFetcherExceptionHandler) {
+        super(dataFetcherExceptionHandler);
         this.executorService = executorService;
     }
 
+
     @Override
-    public ExecutionResult execute(final ExecutionContext executionContext, final ExecutionStrategyParameters parameters) {
+    public CompletableFuture<ExecutionResult> execute(final ExecutionContext executionContext, final ExecutionStrategyParameters parameters) {
         if (executorService == null)
-            return new SimpleExecutionStrategy().execute(executionContext,parameters);
+            return new AsyncExecutionStrategy().execute(executionContext, parameters);
+
+
+        InstrumentationContext<CompletableFuture<ExecutionResult>> executionStrategyCtx = executionContext.getInstrumentation().beginExecutionStrategy(new InstrumentationExecutionStrategyParameters(executionContext));
 
         Map<String, List<Field>> fields = parameters.fields();
-        Map<String, Future<ExecutionResult>> futures = new LinkedHashMap<>();
+        Map<String, Future<CompletableFuture<ExecutionResult>>> futures = new LinkedHashMap<>();
         for (String fieldName : fields.keySet()) {
-            final List<Field> fieldList = fields.get(fieldName);
-            Callable<ExecutionResult> resolveField = () -> resolveField(executionContext, parameters, fieldList);
+            final List<Field> currentField = fields.get(fieldName);
+
+            ExecutionPath fieldPath = parameters.path().segment(fieldName);
+            ExecutionStrategyParameters newParameters = parameters
+                    .transform(builder -> builder.field(currentField).path(fieldPath));
+
+            Callable<CompletableFuture<ExecutionResult>> resolveField = () -> resolveField(executionContext, newParameters);
             futures.put(fieldName, executorService.submit(resolveField));
         }
         try {
             Map<String, Object> results = new LinkedHashMap<>();
             for (String fieldName : futures.keySet()) {
-                ExecutionResult executionResult = futures.get(fieldName).get();
-
+                ExecutionResult executionResult;
+                try {
+                    executionResult = futures.get(fieldName).get().join();
+                } catch (CompletionException e) {
+                    if (e.getCause() instanceof NonNullableFieldWasNullException) {
+                        assertNonNullFieldPrecondition((NonNullableFieldWasNullException) e.getCause());
+                        results = null;
+                        break;
+                    } else {
+                        throw e;
+                    }
+                }
                 results.put(fieldName, executionResult != null ? executionResult.getData() : null);
             }
-            return new ExecutionResultImpl(results, executionContext.getErrors());
+            CompletableFuture<ExecutionResult> result = CompletableFuture.completedFuture(new ExecutionResultImpl(results, executionContext.getErrors()));
+            executionStrategyCtx.onEnd(result, null);
+            return result;
         } catch (InterruptedException | ExecutionException e) {
+            executionStrategyCtx.onEnd(null, e);
             throw new GraphQLException(e);
         }
     }

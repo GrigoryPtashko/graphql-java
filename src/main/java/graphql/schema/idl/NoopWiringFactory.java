@@ -1,41 +1,45 @@
 package graphql.schema.idl;
 
-import graphql.language.FieldDefinition;
-import graphql.language.InterfaceTypeDefinition;
-import graphql.language.UnionTypeDefinition;
 import graphql.schema.DataFetcher;
+import graphql.schema.PropertyDataFetcher;
 import graphql.schema.TypeResolver;
 
-import static graphql.Assert.assertNeverCalled;
+import static graphql.Assert.assertShouldNeverHappen;
 
 public class NoopWiringFactory implements WiringFactory {
+
     @Override
-    public boolean providesTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition interfaceType) {
+    public boolean providesTypeResolver(InterfaceWiringEnvironment environment) {
         return false;
     }
 
     @Override
-    public boolean providesTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition unionType) {
+    public TypeResolver getTypeResolver(InterfaceWiringEnvironment environment) {
+        return assertShouldNeverHappen();
+    }
+
+    @Override
+    public boolean providesTypeResolver(UnionWiringEnvironment environment) {
         return false;
     }
 
     @Override
-    public TypeResolver getTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition interfaceType) {
-        return assertNeverCalled();
+    public TypeResolver getTypeResolver(UnionWiringEnvironment environment) {
+        return assertShouldNeverHappen();
     }
 
     @Override
-    public TypeResolver getTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition unionType) {
-        return assertNeverCalled();
-    }
-
-    @Override
-    public boolean providesDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
+    public boolean providesDataFetcher(FieldWiringEnvironment environment) {
         return false;
     }
 
     @Override
-    public DataFetcher getDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
-        return null;
+    public DataFetcher getDataFetcher(FieldWiringEnvironment environment) {
+        return assertShouldNeverHappen();
+    }
+
+    @Override
+    public DataFetcher getDefaultDataFetcher(FieldWiringEnvironment environment) {
+        return new PropertyDataFetcher(environment.getFieldDefinition().getName());
     }
 }

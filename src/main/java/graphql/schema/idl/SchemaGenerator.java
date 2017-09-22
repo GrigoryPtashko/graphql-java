@@ -1,16 +1,16 @@
 package graphql.schema.idl;
 
+import graphql.Assert;
 import graphql.GraphQLError;
+import graphql.language.Argument;
 import graphql.language.ArrayValue;
-import graphql.language.BooleanValue;
 import graphql.language.Comment;
+import graphql.language.Directive;
 import graphql.language.EnumTypeDefinition;
 import graphql.language.EnumValue;
 import graphql.language.FieldDefinition;
-import graphql.language.FloatValue;
 import graphql.language.InputObjectTypeDefinition;
 import graphql.language.InputValueDefinition;
-import graphql.language.IntValue;
 import graphql.language.InterfaceTypeDefinition;
 import graphql.language.Node;
 import graphql.language.NullValue;
@@ -34,6 +34,8 @@ import graphql.schema.GraphQLInputObjectField;
 import graphql.schema.GraphQLInputObjectType;
 import graphql.schema.GraphQLInputType;
 import graphql.schema.GraphQLInterfaceType;
+import graphql.schema.GraphQLList;
+import graphql.schema.GraphQLNonNull;
 import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLOutputType;
 import graphql.schema.GraphQLScalarType;
@@ -41,7 +43,6 @@ import graphql.schema.GraphQLSchema;
 import graphql.schema.GraphQLType;
 import graphql.schema.GraphQLTypeReference;
 import graphql.schema.GraphQLUnionType;
-import graphql.schema.PropertyDataFetcher;
 import graphql.schema.TypeResolver;
 import graphql.schema.TypeResolverProxy;
 import graphql.schema.idl.errors.NotAnInputTypeError;
@@ -61,6 +62,8 @@ import java.util.Stack;
 import java.util.stream.Collectors;
 
 import static graphql.Assert.assertNotNull;
+import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.toMap;
 
 /**
  * This can generate a working runtime schema from a type registry and runtime wiring
@@ -88,7 +91,7 @@ public class SchemaGenerator {
             return typeRegistry;
         }
 
-        @SuppressWarnings("OptionalGetWithoutIsPresent")
+        @SuppressWarnings({"OptionalGetWithoutIsPresent", "ConstantConditions"})
         TypeDefinition getTypeDefinition(Type type) {
             return typeRegistry.getType(type).get();
         }
@@ -101,8 +104,8 @@ public class SchemaGenerator {
             definitionStack.push(typeInfo.getName());
         }
 
-        String pop() {
-            return definitionStack.pop();
+        void pop() {
+            definitionStack.pop();
         }
 
         GraphQLOutputType hasOutputType(TypeDefinition typeDefinition) {
@@ -171,7 +174,7 @@ public class SchemaGenerator {
         //
         TypeDefinitionRegistry typeRegistry = buildCtx.getTypeRegistry();
         if (!typeRegistry.schemaDefinition().isPresent()) {
-            @SuppressWarnings("OptionalGetWithoutIsPresent")
+            @SuppressWarnings({"OptionalGetWithoutIsPresent", "ConstantConditions"})
             TypeDefinition queryTypeDef = typeRegistry.getType("Query").get();
 
             query = buildOutputType(buildCtx, new TypeName(queryTypeDef.getName()));
@@ -192,7 +195,7 @@ public class SchemaGenerator {
             List<OperationTypeDefinition> operationTypes = schemaDefinition.getOperationTypeDefinitions();
 
             // pre-flight checked via checker
-            @SuppressWarnings("OptionalGetWithoutIsPresent")
+            @SuppressWarnings({"OptionalGetWithoutIsPresent", "ConstantConditions"})
             OperationTypeDefinition queryOp = operationTypes.stream().filter(op -> "query".equals(op.getName())).findFirst().get();
             Optional<OperationTypeDefinition> mutationOp = operationTypes.stream().filter(op -> "mutation".equals(op.getName())).findFirst();
             Optional<OperationTypeDefinition> subscriptionOp = operationTypes.stream().filter(op -> "subscription".equals(op.getName())).findFirst();
@@ -212,6 +215,7 @@ public class SchemaGenerator {
 
         Set<GraphQLType> additionalTypes = buildAdditionalTypes(buildCtx);
 
+        schemaBuilder.fieldVisibility(buildCtx.getWiring().getFieldVisibility());
         return schemaBuilder.build(additionalTypes);
     }
 
@@ -330,6 +334,7 @@ public class SchemaGenerator {
     private GraphQLObjectType buildObjectType(BuildContext buildCtx, ObjectTypeDefinition typeDefinition) {
 
         GraphQLObjectType.Builder builder = GraphQLObjectType.newObject();
+        builder.definition(typeDefinition);
         builder.name(typeDefinition.getName());
         builder.description(buildDescription(typeDefinition));
 
@@ -390,6 +395,7 @@ public class SchemaGenerator {
 
     private GraphQLInterfaceType buildInterfaceType(BuildContext buildCtx, InterfaceTypeDefinition typeDefinition) {
         GraphQLInterfaceType.Builder builder = GraphQLInterfaceType.newInterface();
+        builder.definition(typeDefinition);
         builder.name(typeDefinition.getName());
         builder.description(buildDescription(typeDefinition));
 
@@ -402,6 +408,7 @@ public class SchemaGenerator {
 
     private GraphQLUnionType buildUnionType(BuildContext buildCtx, UnionTypeDefinition typeDefinition) {
         GraphQLUnionType.Builder builder = GraphQLUnionType.newUnionType();
+        builder.definition(typeDefinition);
         builder.name(typeDefinition.getName());
         builder.description(buildDescription(typeDefinition));
         builder.typeResolver(getTypeResolverForUnion(buildCtx, typeDefinition));
@@ -419,12 +426,15 @@ public class SchemaGenerator {
 
     private GraphQLEnumType buildEnumType(BuildContext buildCtx, EnumTypeDefinition typeDefinition) {
         GraphQLEnumType.Builder builder = GraphQLEnumType.newEnum();
+        builder.definition(typeDefinition);
         builder.name(typeDefinition.getName());
         builder.description(buildDescription(typeDefinition));
 
         EnumValuesProvider enumValuesProvider = buildCtx.getWiring().getEnumValuesProviders().get(typeDefinition.getName());
         typeDefinition.getEnumValueDefinitions().forEach(evd -> {
             String description = buildDescription(evd);
+            String deprecation = buildDeprecationReason(evd.getDirectives());
+
             Object value;
             if (enumValuesProvider != null) {
                 value = enumValuesProvider.getValue(evd.getName());
@@ -432,7 +442,7 @@ public class SchemaGenerator {
             } else {
                 value = evd.getName();
             }
-            builder.value(evd.getName(), value, description);
+            builder.value(evd.getName(), value, description, deprecation);
         });
         return builder.build();
     }
@@ -443,8 +453,10 @@ public class SchemaGenerator {
 
     private GraphQLFieldDefinition buildField(BuildContext buildCtx, TypeDefinition parentType, FieldDefinition fieldDef) {
         GraphQLFieldDefinition.Builder builder = GraphQLFieldDefinition.newFieldDefinition();
+        builder.definition(fieldDef);
         builder.name(fieldDef.getName());
         builder.description(buildDescription(fieldDef));
+        builder.deprecate(buildDeprecationReason(fieldDef.getDirectives()));
 
         builder.dataFetcher(buildDataFetcher(buildCtx, parentType, fieldDef));
 
@@ -459,21 +471,25 @@ public class SchemaGenerator {
 
     private DataFetcher buildDataFetcher(BuildContext buildCtx, TypeDefinition parentType, FieldDefinition fieldDef) {
         String fieldName = fieldDef.getName();
+        String parentTypeName = parentType.getName();
         TypeDefinitionRegistry typeRegistry = buildCtx.getTypeRegistry();
-        RuntimeWiring wiring = buildCtx.getWiring();
-        WiringFactory wiringFactory = wiring.getWiringFactory();
+        RuntimeWiring runtimeWiring = buildCtx.getWiring();
+        WiringFactory wiringFactory = runtimeWiring.getWiringFactory();
+
+        FieldWiringEnvironment wiringEnvironment = new FieldWiringEnvironment(typeRegistry, parentType, fieldDef);
 
         DataFetcher dataFetcher;
-        if (wiringFactory.providesDataFetcher(typeRegistry, fieldDef)) {
-            dataFetcher = wiringFactory.getDataFetcher(typeRegistry, fieldDef);
+        if (wiringFactory.providesDataFetcher(wiringEnvironment)) {
+            dataFetcher = wiringFactory.getDataFetcher(wiringEnvironment);
             assertNotNull(dataFetcher, "The WiringFactory indicated it provides a data fetcher but then returned null");
         } else {
-            dataFetcher = wiring.getDataFetcherForType(parentType.getName()).get(fieldName);
+            dataFetcher = runtimeWiring.getDataFetcherForType(parentTypeName).get(fieldName);
             if (dataFetcher == null) {
-                //
-                // in the future we could support FieldDateFetcher but we would need a way to indicate that in the schema spec
-                // perhaps by a directive
-                dataFetcher = new PropertyDataFetcher(fieldName);
+                dataFetcher = runtimeWiring.getDefaultDataFetcherForType(parentTypeName);
+                if (dataFetcher == null) {
+                    dataFetcher = wiringFactory.getDefaultDataFetcher(wiringEnvironment);
+                    assertNotNull(dataFetcher, "The WiringFactory indicated MUST provide a default data fetcher as part of its contract");
+                }
             }
         }
         return dataFetcher;
@@ -481,6 +497,7 @@ public class SchemaGenerator {
 
     private GraphQLInputObjectType buildInputObjectType(BuildContext buildCtx, InputObjectTypeDefinition typeDefinition) {
         GraphQLInputObjectType.Builder builder = GraphQLInputObjectType.newInputObject();
+        builder.definition(typeDefinition);
         builder.name(typeDefinition.getName());
         builder.description(buildDescription(typeDefinition));
 
@@ -491,66 +508,74 @@ public class SchemaGenerator {
 
     private GraphQLInputObjectField buildInputField(BuildContext buildCtx, InputValueDefinition fieldDef) {
         GraphQLInputObjectField.Builder fieldBuilder = GraphQLInputObjectField.newInputObjectField();
+        fieldBuilder.definition(fieldDef);
         fieldBuilder.name(fieldDef.getName());
         fieldBuilder.description(buildDescription(fieldDef));
 
-        fieldBuilder.type(buildInputType(buildCtx, fieldDef.getType()));
-        fieldBuilder.defaultValue(buildValue(fieldDef.getDefaultValue()));
+        // currently the spec doesnt allow deprecations on InputValueDefinitions but it should!
+        //fieldBuilder.deprecate(buildDeprecationReason(fieldDef.getDirectives()));
+        GraphQLInputType inputType = buildInputType(buildCtx, fieldDef.getType());
+        fieldBuilder.type(inputType);
+        fieldBuilder.defaultValue(buildValue(fieldDef.getDefaultValue(), inputType));
 
         return fieldBuilder.build();
     }
 
-
     private GraphQLArgument buildArgument(BuildContext buildCtx, InputValueDefinition valueDefinition) {
         GraphQLArgument.Builder builder = GraphQLArgument.newArgument();
+        builder.definition(valueDefinition);
         builder.name(valueDefinition.getName());
         builder.description(buildDescription(valueDefinition));
-
-        builder.type(buildInputType(buildCtx, valueDefinition.getType()));
-        builder.defaultValue(buildValue(valueDefinition.getDefaultValue()));
+        GraphQLInputType inputType = buildInputType(buildCtx, valueDefinition.getType());
+        builder.type(inputType);
+        builder.defaultValue(buildValue(valueDefinition.getDefaultValue(), inputType));
 
         return builder.build();
     }
 
-    private Object buildValue(Value value) {
+
+    private Object buildValue(Value value, GraphQLType requiredType) {
         Object result = null;
-        if (value instanceof IntValue) {
-            result = ((IntValue) value).getValue();
-        } else if (value instanceof FloatValue) {
-            result = ((FloatValue) value).getValue();
-        } else if (value instanceof StringValue) {
-            result = ((StringValue) value).getValue();
-        } else if (value instanceof EnumValue) {
+        if (requiredType instanceof GraphQLNonNull) {
+            requiredType = ((GraphQLNonNull) requiredType).getWrappedType();
+        }
+        if (requiredType instanceof GraphQLScalarType) {
+            result = ((GraphQLScalarType) requiredType).getCoercing().parseLiteral(value);
+        } else if (value instanceof EnumValue && requiredType instanceof GraphQLEnumType) {
             result = ((EnumValue) value).getName();
-        } else if (value instanceof BooleanValue) {
-            result = ((BooleanValue) value).isValue();
-        } else if (value instanceof ArrayValue) {
+        } else if (value instanceof ArrayValue && requiredType instanceof GraphQLList) {
             ArrayValue arrayValue = (ArrayValue) value;
-            result = arrayValue.getValues().stream().map(this::buildValue).toArray();
-        } else if (value instanceof ObjectValue) {
-            result = buildObjectValue((ObjectValue) value);
-        } else if (value instanceof NullValue) {
-            result = null;
+            GraphQLType wrappedType = ((GraphQLList) requiredType).getWrappedType();
+            result = arrayValue.getValues().stream()
+                    .map(item -> this.buildValue(item, wrappedType)).collect(Collectors.toList());
+        } else if (value instanceof ObjectValue && requiredType instanceof GraphQLInputObjectType) {
+            result = buildObjectValue((ObjectValue) value, (GraphQLInputObjectType) requiredType);
+        } else if (value != null && !(value instanceof NullValue)) {
+            Assert.assertShouldNeverHappen(
+                    "cannot build value of " + requiredType.getName() + " from " + String.valueOf(value));
         }
         return result;
-
     }
 
-    private Object buildObjectValue(ObjectValue defaultValue) {
+    private Object buildObjectValue(ObjectValue defaultValue, GraphQLInputObjectType objectType) {
         HashMap<String, Object> map = new LinkedHashMap<>();
-        defaultValue.getObjectFields().forEach(of -> map.put(of.getName(), buildValue(of.getValue())));
+        defaultValue.getObjectFields().forEach(of -> map.put(of.getName(),
+                buildValue(of.getValue(), objectType.getField(of.getName()).getType())));
         return map;
     }
 
+    @SuppressWarnings("Duplicates")
     private TypeResolver getTypeResolverForUnion(BuildContext buildCtx, UnionTypeDefinition unionType) {
         TypeDefinitionRegistry typeRegistry = buildCtx.getTypeRegistry();
         RuntimeWiring wiring = buildCtx.getWiring();
         WiringFactory wiringFactory = wiring.getWiringFactory();
 
         TypeResolver typeResolver;
-        if (wiringFactory.providesTypeResolver(typeRegistry, unionType)) {
-            typeResolver = wiringFactory.getTypeResolver(typeRegistry, unionType);
-            assertNotNull(typeResolver, "The WiringFactory indicated it provides a type resolver but then returned null");
+        UnionWiringEnvironment environment = new UnionWiringEnvironment(typeRegistry, unionType);
+
+        if (wiringFactory.providesTypeResolver(environment)) {
+            typeResolver = wiringFactory.getTypeResolver(environment);
+            assertNotNull(typeResolver, "The WiringFactory indicated it union provides a type resolver but then returned null");
 
         } else {
             typeResolver = wiring.getTypeResolvers().get(unionType.getName());
@@ -563,15 +588,19 @@ public class SchemaGenerator {
         return typeResolver;
     }
 
+    @SuppressWarnings("Duplicates")
     private TypeResolver getTypeResolverForInterface(BuildContext buildCtx, InterfaceTypeDefinition interfaceType) {
         TypeDefinitionRegistry typeRegistry = buildCtx.getTypeRegistry();
         RuntimeWiring wiring = buildCtx.getWiring();
         WiringFactory wiringFactory = wiring.getWiringFactory();
 
         TypeResolver typeResolver;
-        if (wiringFactory.providesTypeResolver(typeRegistry, interfaceType)) {
-            typeResolver = wiringFactory.getTypeResolver(typeRegistry, interfaceType);
-            assertNotNull(typeResolver, "The WiringFactory indicated it provides a type resolver but then returned null");
+
+        InterfaceWiringEnvironment environment = new InterfaceWiringEnvironment(typeRegistry, interfaceType);
+
+        if (wiringFactory.providesTypeResolver(environment)) {
+            typeResolver = wiringFactory.getTypeResolver(environment);
+            assertNotNull(typeResolver, "The WiringFactory indicated it provides a interface type resolver but then returned null");
 
         } else {
             typeResolver = wiring.getTypeResolvers().get(interfaceType.getName());
@@ -580,10 +609,8 @@ public class SchemaGenerator {
                 typeResolver = new TypeResolverProxy();
             }
         }
-
         return typeResolver;
     }
-
 
     private String buildDescription(Node node) {
         List<Comment> comments = node.getComments();
@@ -597,6 +624,24 @@ public class SchemaGenerator {
             }
         }
         if (lines.size() == 0) return null;
-        return lines.stream().collect(Collectors.joining("\n"));
+        return lines.stream().collect(joining("\n"));
+    }
+
+
+    private String buildDeprecationReason(List<Directive> directives) {
+        directives = directives == null ? Collections.emptyList() : directives;
+        Optional<Directive> directive = directives.stream().filter(d -> "deprecated".equals(d.getName())).findFirst();
+        if (directive.isPresent()) {
+            Map<String, String> args = directive.get().getArguments().stream().collect(toMap(
+                    Argument::getName, arg -> ((StringValue) arg.getValue()).getValue()
+            ));
+            if (args.isEmpty()) {
+                return "No longer supported"; // default value from spec
+            } else {
+                // pre flight checks have ensured its valid
+                return args.get("reason");
+            }
+        }
+        return null;
     }
 }

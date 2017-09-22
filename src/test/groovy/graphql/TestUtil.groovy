@@ -1,21 +1,24 @@
 package graphql
 
-import graphql.language.FieldDefinition
-import graphql.language.InterfaceTypeDefinition
-import graphql.language.UnionTypeDefinition
+import graphql.language.Document
+import graphql.parser.Parser
+import graphql.schema.Coercing
 import graphql.schema.DataFetcher
 import graphql.schema.GraphQLArgument
 import graphql.schema.GraphQLFieldDefinition
 import graphql.schema.GraphQLInputType
 import graphql.schema.GraphQLObjectType
+import graphql.schema.GraphQLScalarType
 import graphql.schema.GraphQLSchema
 import graphql.schema.PropertyDataFetcher
 import graphql.schema.TypeResolver
+import graphql.schema.idl.FieldWiringEnvironment
+import graphql.schema.idl.InterfaceWiringEnvironment
 import graphql.schema.idl.RuntimeWiring
 import graphql.schema.idl.SchemaGenerator
 import graphql.schema.idl.SchemaParser
-import graphql.schema.idl.TypeDefinitionRegistry
 import graphql.schema.idl.TypeRuntimeWiring
+import graphql.schema.idl.UnionWiringEnvironment
 import graphql.schema.idl.WiringFactory
 import graphql.schema.idl.errors.SchemaProblem
 
@@ -56,6 +59,15 @@ class TestUtil {
         schema(spec, RuntimeWiring.newRuntimeWiring().wiringFactory(mockWiringFactory).build())
     }
 
+    static GraphQLSchema schemaFile(String fileName, RuntimeWiring wiring) {
+        def stream = TestUtil.class.getClassLoader().getResourceAsStream(fileName)
+
+        def typeRegistry = new SchemaParser().parse(new InputStreamReader(stream))
+        def schema = new SchemaGenerator().makeExecutableSchema(typeRegistry, wiring)
+        schema
+    }
+
+
     @SuppressWarnings("GroovyMissingReturnStatement")
     static GraphQLSchema schema(String spec, RuntimeWiring runtimeWiring) {
         try {
@@ -67,18 +79,14 @@ class TestUtil {
     }
 
     static WiringFactory mockWiringFactory = new WiringFactory() {
+
         @Override
-        boolean providesTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition interfaceType) {
+        boolean providesTypeResolver(InterfaceWiringEnvironment environment) {
             return true
         }
 
         @Override
-        boolean providesTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition unionType) {
-            return true
-        }
-
-        @Override
-        TypeResolver getTypeResolver(TypeDefinitionRegistry registry, InterfaceTypeDefinition interfaceType) {
+        TypeResolver getTypeResolver(InterfaceWiringEnvironment environment) {
             new TypeResolver() {
                 @Override
                 GraphQLObjectType getType(TypeResolutionEnvironment env) {
@@ -88,7 +96,12 @@ class TestUtil {
         }
 
         @Override
-        TypeResolver getTypeResolver(TypeDefinitionRegistry registry, UnionTypeDefinition unionType) {
+        boolean providesTypeResolver(UnionWiringEnvironment environment) {
+            return true
+        }
+
+        @Override
+        TypeResolver getTypeResolver(UnionWiringEnvironment environment) {
             new TypeResolver() {
                 @Override
                 GraphQLObjectType getType(TypeResolutionEnvironment env) {
@@ -98,14 +111,38 @@ class TestUtil {
         }
 
         @Override
-        boolean providesDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
+        boolean providesDataFetcher(FieldWiringEnvironment environment) {
             return true
         }
 
         @Override
-        DataFetcher getDataFetcher(TypeDefinitionRegistry registry, FieldDefinition definition) {
-            return new PropertyDataFetcher(definition.getName())
+        DataFetcher getDataFetcher(FieldWiringEnvironment environment) {
+            return new PropertyDataFetcher(environment.getFieldDefinition().getName())
         }
+    }
+
+    static GraphQLScalarType mockScalar(String name) {
+        new GraphQLScalarType(name, name, new Coercing() {
+            @Override
+            Object serialize(Object dataFetcherResult) {
+                return null
+            }
+
+            @Override
+            Object parseValue(Object input) {
+                return null
+            }
+
+            @Override
+            Object parseLiteral(Object input) {
+                return null
+            }
+        })
+    }
+
+
+    static Document parseQuery(String query) {
+        new Parser().parseDocument(query)
     }
 
 }

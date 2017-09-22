@@ -6,6 +6,7 @@ import graphql.PublicApi;
 import graphql.language.FieldDefinition;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.UnaryOperator;
@@ -21,7 +22,7 @@ public class GraphQLFieldDefinition {
     private GraphQLOutputType type;
     private final DataFetcher dataFetcher;
     private final String deprecationReason;
-    private final List<GraphQLArgument> arguments = new ArrayList<>();
+    private final List<GraphQLArgument> arguments;
     private final FieldDefinition definition;
 
 
@@ -40,7 +41,7 @@ public class GraphQLFieldDefinition {
         this.description = description;
         this.type = type;
         this.dataFetcher = dataFetcher;
-        this.arguments.addAll(arguments);
+        this.arguments = Collections.unmodifiableList(new ArrayList<>(arguments));
         this.deprecationReason = deprecationReason;
         this.definition = definition;
     }
@@ -71,7 +72,7 @@ public class GraphQLFieldDefinition {
     }
 
     public List<GraphQLArgument> getArguments() {
-        return new ArrayList<>(arguments);
+        return arguments;
     }
 
     public String getDescription() {
@@ -88,6 +89,19 @@ public class GraphQLFieldDefinition {
 
     public boolean isDeprecated() {
         return deprecationReason != null;
+    }
+
+    @Override
+    public String toString() {
+        return "GraphQLFieldDefinition{" +
+                "name='" + name + '\'' +
+                ", type=" + type +
+                ", dataFetcher=" + dataFetcher +
+                ", arguments=" + arguments +
+                ", description='" + description + '\'' +
+                ", deprecationReason='" + deprecationReason + '\'' +
+                ", definition=" + definition +
+                '}';
     }
 
     public static Builder newFieldDefinition() {
@@ -140,6 +154,7 @@ public class GraphQLFieldDefinition {
         }
 
         public Builder dataFetcher(DataFetcher dataFetcher) {
+            assertNotNull(dataFetcher, "dataFetcher must be not null");
             this.dataFetcher = dataFetcher;
             return this;
         }
