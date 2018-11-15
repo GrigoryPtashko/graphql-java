@@ -1,7 +1,14 @@
 package graphql.schema;
 
 
-public class StaticDataFetcher implements DataFetcher {
+import graphql.PublicApi;
+import graphql.TrivialDataFetcher;
+
+/**
+ * A {@link graphql.schema.DataFetcher} that always returns the same value
+ */
+@PublicApi
+public class StaticDataFetcher implements DataFetcher, TrivialDataFetcher {
 
 
     private final Object value;
@@ -14,4 +21,5 @@ public class StaticDataFetcher implements DataFetcher {
     public Object get(DataFetchingEnvironment environment) {
         return value;
     }
+
 }

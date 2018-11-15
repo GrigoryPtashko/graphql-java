@@ -9,9 +9,10 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
+@Deprecated
 class ExecutorServiceExecutionStrategyTest extends Specification {
 
-    def 'Example usage of ExecutorServiceExecutionStrategy.'() {
+    def 'Example usage of ExecutorServiceExecutionStrategy'() {
         given:
         def query = """
         query HeroNameAndFriendsQuery {
@@ -43,11 +44,11 @@ class ExecutorServiceExecutionStrategyTest extends Specification {
         when:
         BlockingQueue<Runnable> queue = new LinkedBlockingQueue<Runnable>() {
             @Override
-            public boolean offer(Runnable e) {
+            boolean offer(Runnable e) {
                 /* queue that always rejects tasks */
-                return false;
+                return false
             }
-        };
+        }
 
         ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(
                 2, /* core pool size 2 thread */
@@ -61,7 +62,7 @@ class ExecutorServiceExecutionStrategyTest extends Specification {
                  *  If all the threads are working, then the caller thread
                  *  should execute the code in its own thread. (serially)
                  */
-                new ThreadPoolExecutor.CallerRunsPolicy());
+                new ThreadPoolExecutor.CallerRunsPolicy())
 
         def graphQL = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema)
                 .queryExecutionStrategy(new ExecutorServiceExecutionStrategy(threadPoolExecutor))

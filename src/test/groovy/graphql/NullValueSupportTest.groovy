@@ -7,6 +7,8 @@ import graphql.validation.ValidationErrorType
 import spock.lang.Specification
 import spock.lang.Unroll
 
+import static graphql.ExecutionInput.newExecutionInput
+
 /*
  * Taken from http://facebook.github.io/graphql/#sec-Input-Objects
  *
@@ -63,11 +65,14 @@ class NullValueSupportTest extends Specification {
     "test graphql spec examples that output results : #testCase"() {
         def fetcher = new CapturingDataFetcher()
 
-        def schema = TestUtil.schema(graphqlSpecExamples, ["Mutation": ["mutate": fetcher]])
+        def graphQL = TestUtil.graphQL(graphqlSpecExamples, ["Mutation": ["mutate": fetcher]]).build()
 
         when:
 
-        def result = GraphQL.newGraphQL(schema).build().execute(queryStr, "mutate", "ctx", variables)
+        def executionInput = newExecutionInput().query(queryStr)
+                .operationName("mutate").context("ctx").variables(variables)
+                .build()
+        def result = graphQL.execute(executionInput)
 
         then:
         assert result.errors.isEmpty(): "Validation Failure in case ${testCase} : $result.errors"
@@ -162,13 +167,16 @@ class NullValueSupportTest extends Specification {
     "test graphql spec examples that output errors #testCase"() {
         def fetcher = new CapturingDataFetcher()
 
-        def schema = TestUtil.schema(graphqlSpecExamples, ["Mutation": ["mutate": fetcher]])
+        def graphQL = TestUtil.graphQL(graphqlSpecExamples, ["Mutation": ["mutate": fetcher]]).build()
 
         when:
 
         ExecutionResult result = null
         try {
-            result = GraphQL.newGraphQL(schema).build().execute(queryStr, "mutate", "ctx", variables)
+            def executionInput = newExecutionInput().query(queryStr)
+                    .operationName("mutate").context("ctx").variables(variables)
+                    .build()
+            result = graphQL.execute(executionInput)
         } catch (GraphQLException e) {
             assert false: "Unexpected exception during ${testCase} : ${e.message}"
         }
@@ -203,17 +211,23 @@ class NullValueSupportTest extends Specification {
     }
 
     @Unroll
-    "test graphql spec examples that output exception : #testCase"() {
+    "test graphql spec examples that output errors via internally throwing exception : #testCase"() {
         def fetcher = new CapturingDataFetcher()
 
-        def schema = TestUtil.schema(graphqlSpecExamples, ["Mutation": ["mutate": fetcher]])
+        def graphQL = TestUtil.graphQL(graphqlSpecExamples, ["Mutation": ["mutate": fetcher]]).build()
 
         when:
-
-        GraphQL.newGraphQL(schema).build().execute(queryStr, "mutate", "ctx", variables)
+        def executionInput = newExecutionInput().query(queryStr)
+                .operationName("mutate").context("ctx").variables(variables)
+                .build()
+        def executionResult = graphQL.execute(executionInput)
 
         then:
-        thrown(expectedException)
+        executionResult.data == null
+        executionResult.errors.size() == 1
+        executionResult.errors[0].errorType == ErrorType.ValidationError
+
+
 
 
         where:
@@ -271,7 +285,7 @@ class NullValueSupportTest extends Specification {
 
         def fetcher = new CapturingDataFetcher()
 
-        def schema = TestUtil.schema("""
+        def graphQL = TestUtil.graphQL("""
             schema { query : Query }
             
             type Query {
@@ -290,10 +304,13 @@ class NullValueSupportTest extends Specification {
                         "list"   : fetcher,
                         "scalar" : fetcher,
                         "complex": fetcher,
-                ]])
+                ]]).build()
 
         when:
-        def result = GraphQL.newGraphQL(schema).build().execute(queryStr, null, "ctx", [:])
+        def executionInput = newExecutionInput().query(queryStr)
+                .operationName(null).context("ctx").variables([:])
+                .build()
+        def result = graphQL.execute(executionInput)
         assert result.errors.isEmpty(): "Unexpected query errors : ${result.errors}"
 
         then:

@@ -5,7 +5,10 @@ import graphql.language.FragmentDefinition;
 import graphql.language.InlineFragment;
 import graphql.schema.GraphQLCompositeType;
 import graphql.schema.GraphQLType;
-import graphql.validation.*;
+import graphql.validation.AbstractRule;
+import graphql.validation.ValidationContext;
+import graphql.validation.ValidationErrorCollector;
+import graphql.validation.ValidationErrorType;
 
 public class FragmentsOnCompositeType extends AbstractRule {
 
@@ -23,7 +26,7 @@ public class FragmentsOnCompositeType extends AbstractRule {
         if (type == null) return;
         if (!(type instanceof GraphQLCompositeType)) {
             String message = "Inline fragment type condition is invalid, must be on Object/Interface/Union";
-            addError(new ValidationError(ValidationErrorType.InlineFragmentTypeConditionInvalid, inlineFragment.getSourceLocation(), message));
+            addError(ValidationErrorType.InlineFragmentTypeConditionInvalid, inlineFragment.getSourceLocation(), message);
         }
     }
 
@@ -33,7 +36,7 @@ public class FragmentsOnCompositeType extends AbstractRule {
         if (type == null) return;
         if (!(type instanceof GraphQLCompositeType)) {
             String message = "Fragment type condition is invalid, must be on Object/Interface/Union";
-            addError(new ValidationError(ValidationErrorType.InlineFragmentTypeConditionInvalid, fragmentDefinition.getSourceLocation(), message));
+            addError(ValidationErrorType.InlineFragmentTypeConditionInvalid, fragmentDefinition.getSourceLocation(), message);
         }
     }
 }

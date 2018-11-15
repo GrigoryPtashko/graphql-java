@@ -4,7 +4,7 @@ import graphql.ExecutionResult
 import graphql.GraphQL
 import graphql.StarWarsSchema
 import graphql.execution.AsyncExecutionStrategy
-import graphql.execution.instrumentation.parameters.InstrumentationDataFetchParameters
+import graphql.execution.instrumentation.parameters.InstrumentationExecuteOperationParameters
 import graphql.execution.instrumentation.parameters.InstrumentationExecutionParameters
 import graphql.execution.instrumentation.parameters.InstrumentationExecutionStrategyParameters
 import graphql.execution.instrumentation.parameters.InstrumentationFieldFetchParameters
@@ -62,15 +62,15 @@ class ChainedInstrumentationStateTest extends Specification {
         }
 
         @Override
-        InstrumentationContext<CompletableFuture<ExecutionResult>> beginExecutionStrategy(InstrumentationExecutionStrategyParameters parameters) {
+        ExecutionStrategyInstrumentationContext beginExecutionStrategy(InstrumentationExecutionStrategyParameters parameters) {
             assertState(parameters.getInstrumentationState())
             return super.beginExecutionStrategy(parameters)
         }
 
         @Override
-        InstrumentationContext<ExecutionResult> beginDataFetch(InstrumentationDataFetchParameters parameters) {
+        InstrumentationContext<ExecutionResult> beginExecuteOperation(InstrumentationExecuteOperationParameters parameters) {
             assertState(parameters.getInstrumentationState())
-            return super.beginDataFetch(parameters)
+            return super.beginExecuteOperation(parameters)
         }
 
         @Override
@@ -126,28 +126,32 @@ class ChainedInstrumentationStateTest extends Specification {
                 "start:validation",
                 "end:validation",
 
-                "start:data-fetch",
+                "start:execute-operation",
 
                 "start:execution-strategy",
 
                 "start:field-hero",
                 "start:fetch-hero",
                 "end:fetch-hero",
+                "start:complete-hero",
 
                 "start:execution-strategy",
 
                 "start:field-id",
                 "start:fetch-id",
                 "end:fetch-id",
+                "start:complete-id",
+                "end:complete-id",
                 "end:field-id",
 
                 "end:execution-strategy",
 
+                "end:complete-hero",
                 "end:field-hero",
 
                 "end:execution-strategy",
 
-                "end:data-fetch",
+                "end:execute-operation",
 
                 "end:execution",
         ]
@@ -175,16 +179,42 @@ class ChainedInstrumentationStateTest extends Specification {
 
     }
 
+    def "empty chain"() {
+        def chainedInstrumentation = new ChainedInstrumentation(Arrays.asList())
+
+        def query = """
+        query HeroNameAndFriendsQuery {
+            hero {
+                id
+            }
+        }
+        """
+
+        when:
+        def strategy = new AsyncExecutionStrategy()
+        def graphQL = GraphQL
+                .newGraphQL(StarWarsSchema.starWarsSchema)
+                .queryExecutionStrategy(strategy)
+                .instrumentation(chainedInstrumentation)
+                .build()
+
+        graphQL.execute(query)
+
+        then:
+        noExceptionThrown()
+
+    }
+
     private void assertCalls(NamedInstrumentation instrumentation) {
         assert instrumentation.dfInvocations[0].getFieldDefinition().name == 'hero'
-        assert instrumentation.dfInvocations[0].getFieldTypeInfo().getPath().toList() == ['hero']
-        assert instrumentation.dfInvocations[0].getFieldTypeInfo().getType().name == 'Character'
-        assert !instrumentation.dfInvocations[0].getFieldTypeInfo().isNonNullType()
+        assert instrumentation.dfInvocations[0].getExecutionStepInfo().getPath().toList() == ['hero']
+        assert instrumentation.dfInvocations[0].getExecutionStepInfo().getUnwrappedNonNullType().name == 'Character'
+        assert !instrumentation.dfInvocations[0].getExecutionStepInfo().isNonNullType()
 
         assert instrumentation.dfInvocations[1].getFieldDefinition().name == 'id'
-        assert instrumentation.dfInvocations[1].getFieldTypeInfo().getPath().toList() == ['hero', 'id']
-        assert instrumentation.dfInvocations[1].getFieldTypeInfo().getType().name == 'String'
-        assert instrumentation.dfInvocations[1].getFieldTypeInfo().isNonNullType()
+        assert instrumentation.dfInvocations[1].getExecutionStepInfo().getPath().toList() == ['hero', 'id']
+        assert instrumentation.dfInvocations[1].getExecutionStepInfo().getUnwrappedNonNullType().name == 'String'
+        assert instrumentation.dfInvocations[1].getExecutionStepInfo().isNonNullType()
     }
 
 }

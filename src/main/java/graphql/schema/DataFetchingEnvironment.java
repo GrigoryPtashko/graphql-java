@@ -1,17 +1,22 @@
 package graphql.schema;
 
 import graphql.PublicApi;
+import graphql.execution.ExecutionContext;
 import graphql.execution.ExecutionId;
-import graphql.execution.ExecutionTypeInfo;
+import graphql.execution.ExecutionStepInfo;
 import graphql.language.Field;
 import graphql.language.FragmentDefinition;
+import org.dataloader.DataLoader;
 
 import java.util.List;
 import java.util.Map;
 
+
 /**
- * A DataFetchingEnvironment instance of passed to a {@link DataFetcher} as an execution context parameter
+ * A DataFetchingEnvironment instance of passed to a {@link DataFetcher} as a execution context and its
+ * the place where you can find out information to help you resolve a data value given a graphql field input
  */
+@SuppressWarnings("TypeParameterUnusedInFormals")
 @PublicApi
 public interface DataFetchingEnvironment {
 
@@ -79,9 +84,37 @@ public interface DataFetchingEnvironment {
 
 
     /**
-     * @return the list of fields currently in query context
+     * It can happen that a query has overlapping fields which are
+     * are querying the same data. If this is the case they get merged
+     * together and fetched only once, but this method returns all of the Fields
+     * from the query.
+     *
+     * Most of the time you probably want to use {@link #getField()}.
+     *
+     * Example query with more than one Field returned:
+     *
+     * <pre>
+     * {@code
+     *
+     *      query Foo {
+     *          bar
+     *          ...BarFragment
+     *      }
+     *
+     *      fragment BarFragment on Query {
+     *          bar
+     *      }
+     * }
+     * </pre>
+     *
+     * @return the list of fields currently queried
      */
     List<Field> getFields();
+
+    /**
+     * @return returns the field which is currently queried. See also {@link #getFields()}
+     */
+    Field getField();
 
     /**
      * @return graphql type of the current field
@@ -90,9 +123,9 @@ public interface DataFetchingEnvironment {
 
 
     /**
-     * @return the field {@link ExecutionTypeInfo} for the current data fetch operation
+     * @return the field {@link ExecutionStepInfo} for the current data fetch operation
      */
-    ExecutionTypeInfo getFieldTypeInfo();
+    ExecutionStepInfo getExecutionStepInfo();
 
     /**
      * @return the type of the parent of the current field
@@ -118,4 +151,23 @@ public interface DataFetchingEnvironment {
      * @return the {@link DataFetchingFieldSelectionSet} for the current data fetch operation
      */
     DataFetchingFieldSelectionSet getSelectionSet();
+
+    /**
+     * @return the current {@link ExecutionContext}. It gives access to the overall schema and other things related to the overall execution of the current request.
+     */
+    ExecutionContext getExecutionContext();
+
+    /**
+     * This allows you to retrieve a named dataloader from the underlying {@link org.dataloader.DataLoaderRegistry}
+     *
+     * @param dataLoaderName the name of the data loader to fetch
+     * @param <K>            the key type
+     * @param <V>            the value type
+     *
+     * @return the named data loader or null
+     *
+     * @see graphql.execution.ExecutionContext#getDataLoaderRegistry()
+     * @see org.dataloader.DataLoaderRegistry#getDataLoader(String)
+     */
+    <K, V> DataLoader<K, V> getDataLoader(String dataLoaderName);
 }

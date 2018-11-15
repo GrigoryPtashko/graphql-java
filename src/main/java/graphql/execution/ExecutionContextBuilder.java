@@ -1,17 +1,24 @@
 package graphql.execution;
 
+import graphql.GraphQLError;
+import graphql.Internal;
+import graphql.PublicApi;
 import graphql.execution.instrumentation.Instrumentation;
 import graphql.execution.instrumentation.InstrumentationState;
 import graphql.language.Document;
 import graphql.language.FragmentDefinition;
 import graphql.language.OperationDefinition;
 import graphql.schema.GraphQLSchema;
+import org.dataloader.DataLoaderRegistry;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static graphql.Assert.assertNotNull;
 
+@PublicApi
 public class ExecutionContextBuilder {
 
     private Instrumentation instrumentation;
@@ -27,6 +34,49 @@ public class ExecutionContextBuilder {
     private OperationDefinition operationDefinition;
     private Map<String, Object> variables = new HashMap<>();
     private Map<String, FragmentDefinition> fragmentsByName = new HashMap<>();
+    private DataLoaderRegistry dataLoaderRegistry;
+    private List<GraphQLError> errors = new ArrayList<>();
+
+    /**
+     * @return a new builder of {@link graphql.execution.ExecutionContext}s
+     */
+    public static ExecutionContextBuilder newExecutionContextBuilder() {
+        return new ExecutionContextBuilder();
+    }
+
+    /**
+     * Creates a new builder based on a previous execution context
+     *
+     * @param other the previous execution to clone
+     *
+     * @return a new builder of {@link graphql.execution.ExecutionContext}s
+     */
+    public static ExecutionContextBuilder newExecutionContextBuilder(ExecutionContext other) {
+        return new ExecutionContextBuilder(other);
+    }
+
+    @Internal
+    public ExecutionContextBuilder() {
+    }
+
+    @Internal
+    ExecutionContextBuilder(ExecutionContext other) {
+        instrumentation = other.getInstrumentation();
+        executionId = other.getExecutionId();
+        instrumentationState = other.getInstrumentationState();
+        graphQLSchema = other.getGraphQLSchema();
+        queryStrategy = other.getQueryStrategy();
+        mutationStrategy = other.getMutationStrategy();
+        subscriptionStrategy = other.getSubscriptionStrategy();
+        context = other.getContext();
+        root = other.getRoot();
+        document = other.getDocument();
+        operationDefinition = other.getOperationDefinition();
+        variables = new HashMap<>(other.getVariables());
+        fragmentsByName = new HashMap<>(other.getFragmentsByName());
+        dataLoaderRegistry = other.getDataLoaderRegistry();
+        errors = new ArrayList<>(other.getErrors());
+    }
 
     public ExecutionContextBuilder instrumentation(Instrumentation instrumentation) {
         this.instrumentation = instrumentation;
@@ -93,10 +143,15 @@ public class ExecutionContextBuilder {
         return this;
     }
 
+
+    public ExecutionContextBuilder dataLoaderRegistry(DataLoaderRegistry dataLoaderRegistry) {
+        this.dataLoaderRegistry = assertNotNull(dataLoaderRegistry);
+        return this;
+    }
+
     public ExecutionContext build() {
         // preconditions
         assertNotNull(executionId, "You must provide a query identifier");
-
 
         return new ExecutionContext(
                 instrumentation,
@@ -111,6 +166,8 @@ public class ExecutionContextBuilder {
                 operationDefinition,
                 variables,
                 context,
-                root);
+                root,
+                dataLoaderRegistry, errors
+        );
     }
 }

@@ -2,11 +2,19 @@ package graphql.schema;
 
 
 import graphql.PublicApi;
+import graphql.util.TraversalControl;
+import graphql.util.TraverserContext;
 
-import java.util.Map;
+import java.util.Collections;
+import java.util.List;
 
 import static graphql.Assert.assertNotNull;
 
+/**
+ * A modified type that indicates there is a list of the underlying wrapped type, eg a list of strings or a list of booleans.
+ *
+ * See http://graphql.org/learn/schema/#lists-and-non-null for more details on the concept
+ */
 @PublicApi
 public class GraphQLList implements GraphQLType, GraphQLInputType, GraphQLOutputType, GraphQLModifiedType, GraphQLNullableType {
 
@@ -31,12 +39,13 @@ public class GraphQLList implements GraphQLType, GraphQLInputType, GraphQLOutput
     }
 
 
+    @Override
     public GraphQLType getWrappedType() {
         return wrappedType;
     }
 
-    void replaceTypeReferences(Map<String, GraphQLType> typeMap) {
-        wrappedType = new SchemaUtil().resolveTypeReference(wrappedType, typeMap);
+    void replaceType(GraphQLType type) {
+        wrappedType = type;
     }
 
     @Override
@@ -59,4 +68,20 @@ public class GraphQLList implements GraphQLType, GraphQLInputType, GraphQLOutput
     public String getName() {
         return null;
     }
+
+    @Override
+    public TraversalControl accept(TraverserContext<GraphQLType> context, GraphQLTypeVisitor visitor) {
+        return visitor.visitGraphQLList(this, context);
+    }
+
+    @Override
+    public List<GraphQLType> getChildren() {
+        return Collections.singletonList(wrappedType);
+    }
+
+    @Override
+    public String toString() {
+        return GraphQLTypeUtil.simplePrint(this);
+    }
+
 }

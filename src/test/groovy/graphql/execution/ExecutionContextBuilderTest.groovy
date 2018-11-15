@@ -6,6 +6,7 @@ import graphql.language.FragmentDefinition
 import graphql.language.OperationDefinition
 import graphql.parser.Parser
 import graphql.schema.GraphQLSchema
+import org.dataloader.DataLoaderRegistry
 import spock.lang.Specification
 
 class ExecutionContextBuilderTest extends Specification {
@@ -44,12 +45,15 @@ class ExecutionContextBuilderTest extends Specification {
         def fragment = document.definitions[1] as FragmentDefinition
         executionContextBuilder.operationDefinition(operation)
 
-        executionContextBuilder.fragmentsByName([MyFragment:fragment])
+        executionContextBuilder.fragmentsByName([MyFragment: fragment])
 
         def variables = Collections.emptyMap()
         executionContextBuilder.variables(variables)
 
         executionContextBuilder.variables([var: 'value'])
+
+        def dataLoaderRegistry = new DataLoaderRegistry()
+        executionContextBuilder.dataLoaderRegistry(dataLoaderRegistry);
 
         when:
         def executionContext = executionContextBuilder.build()
@@ -66,5 +70,6 @@ class ExecutionContextBuilderTest extends Specification {
         executionContext.variables == [var: 'value']
         executionContext.getFragmentsByName() == [MyFragment: fragment]
         executionContext.operationDefinition == operation
+        executionContext.dataLoaderRegistry == dataLoaderRegistry
     }
 }

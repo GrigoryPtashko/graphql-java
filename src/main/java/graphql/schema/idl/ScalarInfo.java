@@ -51,18 +51,18 @@ public class ScalarInfo {
 
     static {
         // graphql standard scalars
-        STANDARD_SCALAR_DEFINITIONS.put("Int", new ScalarTypeDefinition("Int"));
-        STANDARD_SCALAR_DEFINITIONS.put("Float", new ScalarTypeDefinition("Float"));
-        STANDARD_SCALAR_DEFINITIONS.put("String", new ScalarTypeDefinition("String"));
-        STANDARD_SCALAR_DEFINITIONS.put("Boolean", new ScalarTypeDefinition("Boolean"));
-        STANDARD_SCALAR_DEFINITIONS.put("ID", new ScalarTypeDefinition("ID"));
+        STANDARD_SCALAR_DEFINITIONS.put("Int", ScalarTypeDefinition.newScalarTypeDefinition().name("Int").build());
+        STANDARD_SCALAR_DEFINITIONS.put("Float", ScalarTypeDefinition.newScalarTypeDefinition().name("Float").build());
+        STANDARD_SCALAR_DEFINITIONS.put("String", ScalarTypeDefinition.newScalarTypeDefinition().name("String").build());
+        STANDARD_SCALAR_DEFINITIONS.put("Boolean", ScalarTypeDefinition.newScalarTypeDefinition().name("Boolean").build());
+        STANDARD_SCALAR_DEFINITIONS.put("ID", ScalarTypeDefinition.newScalarTypeDefinition().name("ID").build());
 
         // graphql-java library extensions
-        STANDARD_SCALAR_DEFINITIONS.put("Long", new ScalarTypeDefinition("Long"));
-        STANDARD_SCALAR_DEFINITIONS.put("BigInteger", new ScalarTypeDefinition("BigInteger"));
-        STANDARD_SCALAR_DEFINITIONS.put("BigDecimal", new ScalarTypeDefinition("BigDecimal"));
-        STANDARD_SCALAR_DEFINITIONS.put("Short", new ScalarTypeDefinition("Short"));
-        STANDARD_SCALAR_DEFINITIONS.put("Char", new ScalarTypeDefinition("Char"));
+        STANDARD_SCALAR_DEFINITIONS.put("Long", ScalarTypeDefinition.newScalarTypeDefinition().name("Long").build());
+        STANDARD_SCALAR_DEFINITIONS.put("BigInteger", ScalarTypeDefinition.newScalarTypeDefinition().name("BigInteger").build());
+        STANDARD_SCALAR_DEFINITIONS.put("BigDecimal", ScalarTypeDefinition.newScalarTypeDefinition().name("BigDecimal").build());
+        STANDARD_SCALAR_DEFINITIONS.put("Short", ScalarTypeDefinition.newScalarTypeDefinition().name("Short").build());
+        STANDARD_SCALAR_DEFINITIONS.put("Char", ScalarTypeDefinition.newScalarTypeDefinition().name("Char").build());
 
     }
 
@@ -74,7 +74,29 @@ public class ScalarInfo {
      * @return true if the scalar type is a graphql-java provided scalar
      */
     public static boolean isStandardScalar(GraphQLScalarType scalarType) {
-        return STANDARD_SCALARS.stream().anyMatch(sc -> sc.getName().equals(scalarType.getName()));
+        return inList(STANDARD_SCALARS, scalarType.getName());
+    }
+
+    /**
+     * Returns true if the scalar type is a standard one provided by graphql-java
+     *
+     * @param scalarTypeName the name of the scalar type in question
+     *
+     * @return true if the scalar type is a graphql-java provided scalar
+     */
+    public static boolean isStandardScalar(String scalarTypeName) {
+        return inList(STANDARD_SCALARS, scalarTypeName);
+    }
+
+    /**
+     * Returns true if the scalar type is a scalar that is specified by the graphql specification
+     *
+     * @param scalarTypeName the name of the scalar type in question
+     *
+     * @return true if the scalar type is is specified by the graphql specification
+     */
+    public static boolean isGraphqlSpecifiedScalar(String scalarTypeName) {
+        return inList(GRAPHQL_SPECIFICATION_SCALARS, scalarTypeName);
     }
 
     /**
@@ -85,7 +107,11 @@ public class ScalarInfo {
      * @return true if the scalar type is is specified by the graphql specification
      */
     public static boolean isGraphqlSpecifiedScalar(GraphQLScalarType scalarType) {
-        return GRAPHQL_SPECIFICATION_SCALARS.stream().anyMatch(sc -> sc.getName().equals(scalarType.getName()));
+        return inList(GRAPHQL_SPECIFICATION_SCALARS, scalarType.getName());
+    }
+
+    private static boolean inList(List<GraphQLScalarType> scalarList, String scalarTypeName) {
+        return scalarList.stream().anyMatch(sc -> sc.getName().equals(scalarTypeName));
     }
 
 }

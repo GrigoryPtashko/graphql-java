@@ -1,79 +1,59 @@
 package graphql.language;
 
 
+import graphql.Internal;
 import graphql.PublicApi;
+import graphql.util.TraversalControl;
+import graphql.util.TraverserContext;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
-import static graphql.language.NodeUtil.directivesByName;
+import java.util.function.Consumer;
 
 /**
  * Provided to the DataFetcher, therefore public API
  */
 @PublicApi
-public class FragmentDefinition extends AbstractNode implements Definition {
+public class FragmentDefinition extends AbstractNode<FragmentDefinition> implements Definition<FragmentDefinition>, SelectionSetContainer<FragmentDefinition>, DirectivesContainer<FragmentDefinition> {
 
-    private String name;
-    private TypeName typeCondition;
-    private List<Directive> directives = new ArrayList<>();
-    private SelectionSet selectionSet;
+    private final String name;
+    private final TypeName typeCondition;
+    private final List<Directive> directives;
+    private final SelectionSet selectionSet;
 
-    public FragmentDefinition() {
-
-    }
-
-    public FragmentDefinition(String name, TypeName typeCondition) {
+    @Internal
+    protected FragmentDefinition(String name,
+                               TypeName typeCondition,
+                               List<Directive> directives,
+                               SelectionSet selectionSet,
+                               SourceLocation sourceLocation,
+                               List<Comment> comments) {
+        super(sourceLocation, comments);
         this.name = name;
         this.typeCondition = typeCondition;
-    }
-
-    public FragmentDefinition(String name, TypeName typeCondition, SelectionSet selectionSet) {
-        this.name = name;
-        this.typeCondition = typeCondition;
+        this.directives = directives;
         this.selectionSet = selectionSet;
     }
 
-
+    @Override
     public String getName() {
         return name;
     }
 
-    public void setName(String name) {
-        this.name = name;
-    }
 
     public TypeName getTypeCondition() {
         return typeCondition;
     }
 
-    public void setTypeCondition(TypeName typeCondition) {
-        this.typeCondition = typeCondition;
-    }
-
+    @Override
     public List<Directive> getDirectives() {
-        return directives;
+        return new ArrayList<>(directives);
     }
 
-    public Map<String, Directive> getDirectivesByName() {
-        return directivesByName(directives);
-    }
 
-    public Directive getDirective(String directiveName) {
-        return getDirectivesByName().get(directiveName);
-    }
-
-    public void setDirectives(List<Directive> directives) {
-        this.directives = directives;
-    }
-
+    @Override
     public SelectionSet getSelectionSet() {
         return selectionSet;
-    }
-
-    public void setSelectionSet(SelectionSet selectionSet) {
-        this.selectionSet = selectionSet;
     }
 
     @Override
@@ -92,10 +72,19 @@ public class FragmentDefinition extends AbstractNode implements Definition {
 
         FragmentDefinition that = (FragmentDefinition) o;
 
-        return !(name != null ? !name.equals(that.name) : that.name != null);
-
+        return NodeUtil.isEqualTo(this.name, that.name);
     }
 
+    @Override
+    public FragmentDefinition deepCopy() {
+        return new FragmentDefinition(name,
+                deepCopy(typeCondition),
+                deepCopy(directives),
+                deepCopy(selectionSet),
+                getSourceLocation(),
+                getComments()
+        );
+    }
 
     @Override
     public String toString() {
@@ -105,5 +94,77 @@ public class FragmentDefinition extends AbstractNode implements Definition {
                 ", directives=" + directives +
                 ", selectionSet=" + selectionSet +
                 '}';
+    }
+
+    @Override
+    public TraversalControl accept(TraverserContext<Node> context, NodeVisitor nodeVisitor) {
+        return nodeVisitor.visitFragmentDefinition(this, context);
+    }
+
+    public static Builder newFragmentDefinition() {
+        return new Builder();
+    }
+
+    public FragmentDefinition transform(Consumer<Builder> builderConsumer) {
+        Builder builder = new Builder(this);
+        builderConsumer.accept(builder);
+        return builder.build();
+    }
+
+    public static final class Builder implements NodeBuilder {
+        private SourceLocation sourceLocation;
+        private List<Comment> comments = new ArrayList<>();
+        private String name;
+        private TypeName typeCondition;
+        private List<Directive> directives = new ArrayList<>();
+        private SelectionSet selectionSet;
+
+        private Builder() {
+        }
+
+        private Builder(FragmentDefinition existing) {
+            this.sourceLocation = existing.getSourceLocation();
+            this.comments = existing.getComments();
+            this.name = existing.getName();
+            this.typeCondition = existing.getTypeCondition();
+            this.directives = existing.getDirectives();
+            this.selectionSet = existing.getSelectionSet();
+        }
+
+
+        public Builder sourceLocation(SourceLocation sourceLocation) {
+            this.sourceLocation = sourceLocation;
+            return this;
+        }
+
+        public Builder comments(List<Comment> comments) {
+            this.comments = comments;
+            return this;
+        }
+
+        public Builder name(String name) {
+            this.name = name;
+            return this;
+        }
+
+        public Builder typeCondition(TypeName typeCondition) {
+            this.typeCondition = typeCondition;
+            return this;
+        }
+
+        public Builder directives(List<Directive> directives) {
+            this.directives = directives;
+            return this;
+        }
+
+        public Builder selectionSet(SelectionSet selectionSet) {
+            this.selectionSet = selectionSet;
+            return this;
+        }
+
+        public FragmentDefinition build() {
+            FragmentDefinition fragmentDefinition = new FragmentDefinition(name, typeCondition, directives, selectionSet, sourceLocation, comments);
+            return fragmentDefinition;
+        }
     }
 }

@@ -13,6 +13,11 @@ import graphql.schema.idl.SchemaPrinter
 import spock.lang.Specification
 
 import static BlockedFields.newBlock
+import static graphql.Scalars.GraphQLString
+import static graphql.schema.GraphQLArgument.newArgument
+import static graphql.schema.GraphQLFieldDefinition.newFieldDefinition
+import static graphql.schema.GraphQLInputObjectField.newInputObjectField
+import static graphql.schema.GraphQLInputObjectType.newInputObject
 import static graphql.schema.visibility.DefaultGraphqlFieldVisibility.DEFAULT_FIELD_VISIBILITY
 import static graphql.schema.visibility.NoIntrospectionGraphqlFieldVisibility.NO_INTROSPECTION_FIELD_VISIBILITY
 
@@ -122,45 +127,49 @@ class GraphqlFieldVisibilityTest extends Specification {
 
 #A character in the Star Wars Trilogy
 interface Character {
+  #Which movies they appear in.
+  appearsIn: [Episode]
+  #The friends of the character, or an empty list if they have none.
+  friends: [Character]
   #The id of the character.
   id: String!
   #The name of the character.
   name: String
-  #The friends of the character, or an empty list if they have none.
-  friends: [Character]
-  #Which movies they appear in.
-  appearsIn: [Episode]
 }
 
 #A mechanical creature in the Star Wars universe.
 type Droid implements Character {
+  #Which movies they appear in.
+  appearsIn: [Episode]
+  #The friends of the droid, or an empty list if they have none.
+  friends: [Character]
   #The id of the droid.
   id: String!
   #The name of the droid.
   name: String
-  #The friends of the droid, or an empty list if they have none.
-  friends: [Character]
-  #Which movies they appear in.
-  appearsIn: [Episode]
   #The primary function of the droid.
   primaryFunction: String
 }
 
 #A humanoid creature in the Star Wars universe.
 type Human implements Character {
+  #Which movies they appear in.
+  appearsIn: [Episode]
+  #The friends of the human, or an empty list if they have none.
+  friends: [Character]
+  #The home planet of the human, or null if unknown.
+  homePlanet: String
   #The id of the human.
   id: String!
   #The name of the human.
   name: String
-  #The friends of the human, or an empty list if they have none.
-  friends: [Character]
-  #Which movies they appear in.
-  appearsIn: [Episode]
-  #The home planet of the human, or null if unknown.
-  homePlanet: String
 }
 
 type QueryType {
+  droid(
+  #id of the droid
+  id: String!
+  ): Droid
   hero(
   #If omitted, returns the hero of the whole saga. If provided, returns the hero of that particular episode.
   episode: Episode
@@ -169,20 +178,16 @@ type QueryType {
   #id of the human
   id: String!
   ): Human
-  droid(
-  #id of the droid
-  id: String!
-  ): Droid
 }
 
 #One of the films in the Star Wars Trilogy
 enum Episode {
-  #Released in 1977.
-  NEWHOPE
   #Released in 1980.
   EMPIRE
   #Released in 1983.
   JEDI
+  #Released in 1977.
+  NEWHOPE
 }
 """
 
@@ -203,59 +208,59 @@ enum Episode {
 
 #A character in the Star Wars Trilogy
 interface Character {
-  #The id of the character.
-  id: String!
-  #The friends of the character, or an empty list if they have none.
-  friends: [Character]
   #Which movies they appear in.
   appearsIn: [Episode]
+  #The friends of the character, or an empty list if they have none.
+  friends: [Character]
+  #The id of the character.
+  id: String!
 }
 
 #A mechanical creature in the Star Wars universe.
 type Droid implements Character {
-  #The name of the droid.
-  name: String
-  #The friends of the droid, or an empty list if they have none.
-  friends: [Character]
   #Which movies they appear in.
   appearsIn: [Episode]
+  #The friends of the droid, or an empty list if they have none.
+  friends: [Character]
+  #The name of the droid.
+  name: String
   #The primary function of the droid.
   primaryFunction: String
 }
 
 #A humanoid creature in the Star Wars universe.
 type Human implements Character {
+  #Which movies they appear in.
+  appearsIn: [Episode]
+  #The friends of the human, or an empty list if they have none.
+  friends: [Character]
+  #The home planet of the human, or null if unknown.
+  homePlanet: String
   #The id of the human.
   id: String!
   #The name of the human.
   name: String
-  #The friends of the human, or an empty list if they have none.
-  friends: [Character]
-  #Which movies they appear in.
-  appearsIn: [Episode]
-  #The home planet of the human, or null if unknown.
-  homePlanet: String
 }
 
 type QueryType {
-  human(
-  #id of the human
-  id: String!
-  ): Human
   droid(
   #id of the droid
   id: String!
   ): Droid
+  human(
+  #id of the human
+  id: String!
+  ): Human
 }
 
 #One of the films in the Star Wars Trilogy
 enum Episode {
-  #Released in 1977.
-  NEWHOPE
   #Released in 1980.
   EMPIRE
   #Released in 1983.
   JEDI
+  #Released in 1977.
+  NEWHOPE
 }
 """
 
@@ -295,5 +300,137 @@ enum Episode {
         // we test that should you some how invoke the execution strategy - it will follow fields visibility
         // rules
         thrown(GraphQLException)
+    }
+
+    def inputType = newInputObject().name("InputType")
+            .field(newInputObjectField().name("openField").type(GraphQLString))
+            .field(newInputObjectField().name("closedField").type(GraphQLString))
+            .build()
+
+    def inputQueryType = GraphQLObjectType.newObject().name("InputQuery")
+            .field(newFieldDefinition().name("hello").type(GraphQLString)
+            .argument(newArgument().name("arg").type(inputType))
+            .dataFetcher({ env -> return "world" })
+    )
+            .build()
+
+    def "ensure input field are blocked"() {
+
+        when:
+        def schema = GraphQLSchema.newSchema()
+                .query(inputQueryType)
+                .build()
+
+        def graphQL = GraphQL.newGraphQL(schema).build()
+
+        def er = graphQL.execute('''
+            {
+                hello(arg : {
+                    openField: "open", 
+                    closedField:"closed"
+                    })
+            }
+        ''')
+
+        then:
+        er.getErrors().isEmpty()
+        er.getData() == ["hello": "world"]
+
+        when:
+        schema = GraphQLSchema.newSchema()
+                .query(inputQueryType)
+                .fieldVisibility(ban(['InputType.closedField']))
+                .build()
+
+        graphQL = GraphQL.newGraphQL(schema).build()
+
+        er = graphQL.execute('''
+            {
+                hello(arg : {
+                    openField: "open", 
+                    closedField:"closed"
+                    })
+            }
+        ''')
+
+        then:
+        !er.getErrors().isEmpty()
+        er.getErrors()[0].message.contains("contains a field not in 'InputType': 'closedField'")
+        er.data == null
+    }
+
+    def "input introspection is blocked"() {
+
+        given:
+
+        def schema = GraphQLSchema.newSchema()
+                .query(inputQueryType)
+                .fieldVisibility(fieldVisibility)
+                .build()
+
+        def graphQL = GraphQL.newGraphQL(schema).build()
+
+        when:
+
+        def result = graphQL.execute(IntrospectionQuery.INTROSPECTION_QUERY)
+
+        then:
+
+        List types = result.data["__schema"]["types"] as List
+        Map typeMap = types.find({ it -> it['name'] == targetTypeName }) as Map
+        List fields = typeMap['inputFields'] as List
+        fields.size() == expectedFieldCounts
+
+        where:
+
+        fieldVisibility                | targetTypeName | expectedFieldCounts
+        DEFAULT_FIELD_VISIBILITY       | 'InputType'    | 2
+        ban(["InputType.closedField"]) | 'InputType'    | 1
+    }
+
+    def "input schema print is blocked"() {
+        when:
+        def schema = GraphQLSchema.newSchema()
+                .query(inputQueryType)
+                .fieldVisibility(DEFAULT_FIELD_VISIBILITY)
+                .build()
+        def result = new SchemaPrinter().print(schema)
+
+        then:
+        result == '''schema {
+  query: InputQuery
+}
+
+type InputQuery {
+  hello(arg: InputType): String
+}
+
+input InputType {
+  closedField: String
+  openField: String
+}
+'''
+
+        when:
+        schema = GraphQLSchema.newSchema()
+                .query(inputQueryType)
+                .fieldVisibility(ban(["InputType.closedField"]))
+                .build()
+        result = new SchemaPrinter().print(schema)
+
+        then:
+        result == '''schema {
+  query: InputQuery
+}
+
+type InputQuery {
+  hello(arg: InputType): String
+}
+
+input InputType {
+  openField: String
+}
+'''
+
     }
 }

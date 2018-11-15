@@ -1,6 +1,38 @@
 package graphql.parser
 
-import graphql.language.*
+import graphql.language.Argument
+import graphql.language.ArrayValue
+import graphql.language.AstComparator
+import graphql.language.BooleanValue
+import graphql.language.Description
+import graphql.language.Directive
+import graphql.language.DirectiveDefinition
+import graphql.language.Document
+import graphql.language.EnumTypeDefinition
+import graphql.language.Field
+import graphql.language.FloatValue
+import graphql.language.FragmentDefinition
+import graphql.language.FragmentSpread
+import graphql.language.InlineFragment
+import graphql.language.InputObjectTypeDefinition
+import graphql.language.IntValue
+import graphql.language.InterfaceTypeDefinition
+import graphql.language.ListType
+import graphql.language.Node
+import graphql.language.NonNullType
+import graphql.language.NullValue
+import graphql.language.ObjectField
+import graphql.language.ObjectTypeDefinition
+import graphql.language.ObjectValue
+import graphql.language.OperationDefinition
+import graphql.language.ScalarTypeDefinition
+import graphql.language.Selection
+import graphql.language.SelectionSet
+import graphql.language.StringValue
+import graphql.language.TypeName
+import graphql.language.UnionTypeDefinition
+import graphql.language.VariableDefinition
+import graphql.language.VariableReference
 import org.antlr.v4.runtime.misc.ParseCancellationException
 import spock.lang.Specification
 import spock.lang.Unroll
@@ -45,7 +77,7 @@ class ParserTest extends Specification {
 
         def innerSelectionSet = new SelectionSet([new Field("name")])
         def selectionSet = new SelectionSet([new Field("me", innerSelectionSet)])
-        def definition = new OperationDefinition(null, OperationDefinition.Operation.QUERY, [], selectionSet)
+        def definition = OperationDefinition.newOperationDefinition().operation(OperationDefinition.Operation.QUERY).selectionSet(selectionSet).build()
         def expectedResult = new Document([definition])
 
         when:
@@ -60,16 +92,18 @@ class ParserTest extends Specification {
         given:
         def input = 'query getProfile($devicePicSize: Int){ me }'
 
-        def expectedResult = new Document()
+        def expectedResult = Document.newDocument()
         def variableDefinition = new VariableDefinition("devicePicSize", new TypeName("Int"))
         def selectionSet = new SelectionSet([new Field("me")])
-        def definition = new OperationDefinition("getProfile", OperationDefinition.Operation.QUERY, [variableDefinition], selectionSet)
-        expectedResult.definitions.add(definition)
+        def definition = OperationDefinition.newOperationDefinition().name("getProfile").operation(OperationDefinition.Operation.QUERY)
+                .variableDefinitions([variableDefinition])
+                .selectionSet(selectionSet).build()
+        expectedResult.definition(definition)
 
         when:
         Document document = new Parser().parseDocument(input)
         then:
-        isEqual(document, expectedResult)
+        isEqual(document, expectedResult.build())
     }
 
     def "parse mutation"() {
@@ -104,10 +138,10 @@ class ParserTest extends Specification {
         def argument4 = new Argument("floatValue", new FloatValue(3.04))
         def field = new Field("user", [argument, argument2, argument3, argument4])
         def selectionSet = new SelectionSet([field])
-        def operationDefinition = new OperationDefinition()
-        operationDefinition.operation = OperationDefinition.Operation.QUERY
-        operationDefinition.selectionSet = selectionSet
-        def expectedResult = new Document([operationDefinition])
+        def operationDefinition = OperationDefinition.newOperationDefinition()
+        operationDefinition.operation(OperationDefinition.Operation.QUERY)
+        operationDefinition.selectionSet(selectionSet)
+        def expectedResult = Document.newDocument().definitions([operationDefinition.build()]).build()
 
         when:
         Document document = new Parser().parseDocument(input)
@@ -142,14 +176,14 @@ class ParserTest extends Specification {
 
         def userField = new Field("user", [new Argument("id", new IntValue(4))], new SelectionSet([friendsField, mutalFriendsField]))
 
-        def queryDefinition = new OperationDefinition("withFragments", OperationDefinition.Operation.QUERY, new SelectionSet([userField]))
+        def queryDefinition = OperationDefinition.newOperationDefinition().name("withFragments").operation(OperationDefinition.Operation.QUERY).selectionSet(new SelectionSet([userField])).build()
 
         and: "expected fragment definition"
         def idField = new Field("id")
         def nameField = new Field("name")
         def profilePicField = new Field("profilePic", [new Argument("size", new IntValue(50))])
-        def selectionSet = new SelectionSet([idField, nameField, profilePicField])
-        def fragmentDefinition = new FragmentDefinition("friendFields", new TypeName("User"), selectionSet)
+        def selectionSet = SelectionSet.newSelectionSet().selections([idField, nameField, profilePicField]).build()
+        def fragmentDefinition = FragmentDefinition.newFragmentDefinition().name("friendFields").typeCondition(new TypeName("User")).selectionSet(selectionSet).build()
 
 
         when:
@@ -191,8 +225,9 @@ class ParserTest extends Specification {
         def handlesArgument = new ArrayValue([new StringValue("zuck"), new StringValue("cocacola")])
         def profilesField = new Field("profiles", [new Argument("handles", handlesArgument)], new SelectionSet([handleField, userFragment, pageFragment]))
 
-        def queryDefinition = new OperationDefinition("InlineFragmentTyping", OperationDefinition.Operation.QUERY,
-                new SelectionSet([profilesField]))
+        def queryDefinition = OperationDefinition.newOperationDefinition()
+                .name("InlineFragmentTyping").operation(OperationDefinition.Operation.QUERY)
+                .selectionSet(new SelectionSet([profilesField])).build()
 
         when:
         def document = new Parser().parseDocument(input)
@@ -213,15 +248,15 @@ class ParserTest extends Specification {
 
         and: "expected query"
         def skipDirective = new Directive("skip", [new Argument("if", new VariableReference("someTest"))])
-        def experimentalField = new Field("experimentalField", [], [skipDirective])
-        def includeDirective = new Directive("include", [new Argument("if", new VariableReference("someTest"))]);
-        def controlField = new Field("controlField", [], [includeDirective])
+        def experimentalField = Field.newField().name("experimentalField").directives([skipDirective]).build()
+        def includeDirective = new Directive("include", [new Argument("if", new VariableReference("someTest"))])
+        def controlField = Field.newField().name("controlField").directives([includeDirective]).build()
 
-        def queryDefinition = new OperationDefinition("myQuery", OperationDefinition.Operation.QUERY,
-                [new VariableDefinition("someTest", new TypeName("Boolean"))],
-                new SelectionSet([experimentalField, controlField]))
-
-
+        def queryDefinition = OperationDefinition.newOperationDefinition()
+                .name("myQuery")
+                .operation(OperationDefinition.Operation.QUERY)
+                .variableDefinitions([new VariableDefinition("someTest", new TypeName("Boolean"))])
+                .selectionSet(new SelectionSet([experimentalField, controlField])).build()
         when:
         def document = new Parser().parseDocument(input)
 
@@ -240,11 +275,11 @@ class ParserTest extends Specification {
 
         and: "expected query"
 
+
         def helloField = new Field("hello")
         def variableDefinition = new VariableDefinition("someTest", getOutputType)
-        def queryDefinition = new OperationDefinition("myQuery", OperationDefinition.Operation.QUERY,
-                [variableDefinition],
-                new SelectionSet([helloField]))
+        def queryDefinition = OperationDefinition.newOperationDefinition().name("myQuery").operation(OperationDefinition.Operation.QUERY)
+                .variableDefinitions([variableDefinition]).selectionSet(new SelectionSet([helloField])).build()
 
 
         when:
@@ -273,9 +308,8 @@ class ParserTest extends Specification {
 
         def helloField = new Field("hello")
         def variableDefinition = new VariableDefinition("variable", new TypeName("String"), new StringValue("world"))
-        def queryDefinition = new OperationDefinition("myQuery", OperationDefinition.Operation.QUERY,
-                [variableDefinition],
-                new SelectionSet([helloField]))
+        def queryDefinition = OperationDefinition.newOperationDefinition().name("myQuery").operation(OperationDefinition.Operation.QUERY)
+                .variableDefinitions([variableDefinition]).selectionSet(new SelectionSet([helloField])).build()
 
 
         when:
@@ -289,22 +323,23 @@ class ParserTest extends Specification {
         given:
         def input = """
             query myQuery {
-              hello(arg: {intKey:1, floatKey: 4., stringKey: \"world\", subObject: {subKey:true} } ) }
+              hello(arg: {intKey:1, floatKey: 4.1, stringKey: \"world\", subObject: {subKey:true} } ) }
             """
 
         and: "expected query"
 
-        def objectValue = new ObjectValue()
-        objectValue.getObjectFields().add(new ObjectField("intKey", new IntValue(1)))
-        objectValue.getObjectFields().add(new ObjectField("floatKey", new FloatValue(4)))
-        objectValue.getObjectFields().add(new ObjectField("stringKey", new StringValue("world")))
-        def subObject = new ObjectValue()
-        subObject.getObjectFields().add(new ObjectField("subKey", new BooleanValue(true)))
-        objectValue.getObjectFields().add(new ObjectField("subObject", subObject))
-        def argument = new Argument("arg", objectValue)
+        def objectValue = ObjectValue.newObjectValue()
+        objectValue.objectField(new ObjectField("intKey", new IntValue(1)))
+        objectValue.objectField(new ObjectField("floatKey", new FloatValue(4.1)))
+        objectValue.objectField(new ObjectField("stringKey", new StringValue("world")))
+        def subObject = ObjectValue.newObjectValue()
+        subObject.objectField(new ObjectField("subKey", new BooleanValue(true)))
+        objectValue.objectField(new ObjectField("subObject", subObject.build()))
+        def argument = new Argument("arg", objectValue.build())
         def helloField = new Field("hello", [argument])
-        def queryDefinition = new OperationDefinition("myQuery", OperationDefinition.Operation.QUERY,
-                new SelectionSet([helloField]))
+        def queryDefinition = OperationDefinition.newOperationDefinition().name("myQuery")
+                .operation(OperationDefinition.Operation.QUERY)
+                .selectionSet(new SelectionSet([helloField])).build()
 
 
         when:
@@ -355,6 +390,18 @@ class ParserTest extends Specification {
 
     }
 
+    def "#848 floats must have digits"() {
+        given:
+        def input = """
+            { hello(arg: 4.) }
+            """
+        when:
+        def document = new Parser().parseDocument(input)
+
+        then:
+        thrown(ParseCancellationException)
+    }
+
     def "extraneous input is an exception"() {
         given:
         def input = """
@@ -388,9 +435,9 @@ class ParserTest extends Specification {
         document.definitions[0].operation == OperationDefinition.Operation.MUTATION
     }
 
-    def "subscription without a name"(){
+    def "subscription without a name"() {
         given:
-        def input="""
+        def input = """
         subscription { s }
         """
         when:
@@ -479,5 +526,150 @@ class ParserTest extends Specification {
         then:
         selection.arguments[0].value == NullValue.Null
 
+    }
+
+
+    def "whitespace_ignored"() {
+        given:
+        def BOM = "\ufeff"
+        def ws = "\t \n"
+        def comma = ","
+        def input = "{ " + BOM + ws + comma + "foo(bar: null) }"
+
+        when:
+        def document = new Parser().parseDocument(input)
+        def operation = document.definitions[0] as OperationDefinition
+        def selection = operation.selectionSet.selections[0] as Field
+
+        then:
+        selection.name == "foo"
+    }
+
+    def "triple quoted strings"() {
+        given:
+        def input = '''{ field(triple : """triple
+string""", single : "single") }'''
+
+        when:
+        Document document = new Parser().parseDocument(input)
+
+        then:
+        document.definitions.size() == 1
+        OperationDefinition operationDefinition = document.definitions[0]
+        Selection selection = operationDefinition.getSelectionSet().getSelections()[0]
+        Field field = (Field) selection
+        assert field.getArguments().size() == 2
+        assert argValue(field, 0) == 'triple\nstring'
+        assert argValue(field, 1) == 'single'
+    }
+
+    def "triple quoted strings with the one special escape character"() {
+        given:
+        def input = '''{ field(
+triple : """triple
+
+string that is \\""" escaped""", 
+
+triple2 : """another string with \\""" escaping""", 
+
+triple3 : """edge cases \\""" "" " \\"" \\" edge cases"""
+
+) }'''
+
+        when:
+        Document document = new Parser().parseDocument(input)
+
+        then:
+        document.definitions.size() == 1
+        OperationDefinition operationDefinition = document.definitions[0]
+        Selection selection = operationDefinition.getSelectionSet().getSelections()[0]
+        Field field = (Field) selection
+        assert field.getArguments().size() == 3
+        assert argValue(field, 0) == 'triple\n\nstring that is """ escaped'
+        assert argValue(field, 1) == 'another string with """ escaping'
+        assert argValue(field, 2) == 'edge cases """ "" " \\"" \\" edge cases'
+    }
+
+    String argValue(Field field, Integer index) {
+        def value = (field.getArguments()[index].getValue() as StringValue).getValue()
+        value
+    }
+
+    def "parse IDL type definitions with doc string comments"() {
+        given:
+        def input = '''
+            """object type"""
+            type Object {
+                """object field"""
+                field : String
+            }
+            
+            """interface type"""
+            interface Interface {
+                """interface field"""
+                field : String
+            }
+            
+            """union type"""
+            union Union = Foo | Bar
+            
+            """scalar type"""
+            scalar Scalar
+            
+            """enum type"""
+            enum Enum {
+                """enum field"""
+                foo
+            }
+            
+            """input type"""
+            input Input {
+                """input field"""
+                field : String
+            }
+
+            """directive def""" 
+            directive @ dname on scalar            
+
+'''
+
+        when:
+        Document document = new Parser().parseDocument(input)
+
+        then:
+        document.definitions.size() == 7
+
+        assertMultiDesc((document.definitions[0] as ObjectTypeDefinition).getDescription(), "object type")
+        assertMultiDesc((document.definitions[0] as ObjectTypeDefinition).getFieldDefinitions()[0].getDescription(), "object field")
+
+        assertMultiDesc((document.definitions[1] as InterfaceTypeDefinition).getDescription(), "interface type")
+        assertMultiDesc((document.definitions[1] as InterfaceTypeDefinition).getFieldDefinitions()[0].getDescription(), "interface field")
+
+        assertMultiDesc((document.definitions[2] as UnionTypeDefinition).getDescription(), "union type")
+
+        assertMultiDesc((document.definitions[3] as ScalarTypeDefinition).getDescription(), "scalar type")
+
+        assertMultiDesc((document.definitions[4] as EnumTypeDefinition).getDescription(), "enum type")
+        assertMultiDesc((document.definitions[4] as EnumTypeDefinition).getEnumValueDefinitions()[0].getDescription(), "enum field")
+
+        assertMultiDesc((document.definitions[5] as InputObjectTypeDefinition).getDescription(), "input type")
+        assertMultiDesc((document.definitions[5] as InputObjectTypeDefinition).getInputValueDefinitions()[0].getDescription(), "input field")
+
+        assertMultiDesc((document.definitions[6] as DirectiveDefinition).getDescription(), "directive def")
+
+    }
+
+    def assertMultiDesc(Description description, String expected) {
+        assertDesc(description, expected, true)
+    }
+
+    def assertDesc(Description description, String expected, boolean multiLine) {
+        if (description == null) {
+            assert expected == null
+        } else {
+            assert expected == description.getContent(), "content check"
+            assert multiLine == description.isMultiLine(), "multi line ==" + multiLine
+        }
+        true
     }
 }

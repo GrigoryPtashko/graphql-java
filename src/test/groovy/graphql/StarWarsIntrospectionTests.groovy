@@ -19,24 +19,27 @@ class StarWarsIntrospectionTests extends Specification {
         """
         def expected = [
                 __schema: [types:
-                                   [[name: 'QueryType'],
-                                    [name: 'Character'],
-                                    [name: 'String'],
-                                    [name: 'Episode'],
-                                    [name: 'Human'],
-                                    [name: 'Droid'],
-                                    [name: '__Schema'],
-                                    [name: '__Type'],
+                                   [[name: 'Human'],
                                     [name: '__TypeKind'],
                                     [name: '__Field'],
+                                    [name: 'MutationType'],
+                                    [name: 'Character'],
+                                    [name: '__Schema'],
+                                    [name: 'HumanInput'],
+                                    [name: '__Type'],
+                                    [name: '__EnumValue'],
+                                    [name: '__DirectiveLocation'],
+                                    [name: 'String'],
+                                    [name: 'Droid'],
+                                    [name: 'Episode'],
                                     [name: '__InputValue'],
                                     [name: 'Boolean'],
-                                    [name: '__EnumValue'],
-                                    [name: '__Directive'],
-                                    [name: '__DirectiveLocation']]
+                                    [name: 'QueryType'],
+                                    [name: '__Directive']
+                                   ]
                 ]
 
-        ];
+        ]
 
         when:
         def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute(query).data
@@ -109,7 +112,7 @@ class StarWarsIntrospectionTests extends Specification {
                         name: 'Droid',
                         kind: 'OBJECT'
                 ]
-        ];
+        ]
         when:
         def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute(query).data
 
@@ -132,7 +135,7 @@ class StarWarsIntrospectionTests extends Specification {
                         name: 'Character',
                         kind: 'INTERFACE'
                 ]
-        ];
+        ]
         when:
         def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute(query).data
 
@@ -198,7 +201,7 @@ class StarWarsIntrospectionTests extends Specification {
                                 ]
                         ]
                 ]
-        ];
+        ]
         when:
         def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute(query).data
 
@@ -377,7 +380,7 @@ class StarWarsIntrospectionTests extends Specification {
                                 ]
                         ]
                 ]
-        ];
+        ]
 
         when:
         def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute(query)
@@ -401,7 +404,7 @@ class StarWarsIntrospectionTests extends Specification {
                         name       : 'Droid',
                         description: 'A mechanical creature in the Star Wars universe.'
                 ]
-        ];
+        ]
 
         when:
         def result = GraphQL.newGraphQL(StarWarsSchema.starWarsSchema).build().execute(query)
@@ -423,9 +426,9 @@ class StarWarsIntrospectionTests extends Specification {
         Map<String, Object> schemaParts = (Map<String, Map>) schema.get("__schema")
         schemaParts.size() == 5
         schemaParts.get('queryType').size() == 1
-        schemaParts.get('mutationType') == null
+        schemaParts.get('mutationType').size() == 1
         schemaParts.get('subscriptionType') == null
-        schemaParts.get('types').size() == 15
-        schemaParts.get('directives').size() == 2
+        schemaParts.get('types').size() == 17
+        schemaParts.get('directives').size() == 3
     }
 }

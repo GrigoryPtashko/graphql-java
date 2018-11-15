@@ -2,16 +2,16 @@ package graphql.execution
 
 import spock.lang.Specification
 
+import static ExecutionStepInfo.newExecutionStepInfo
 import static graphql.Scalars.GraphQLString
 import static graphql.execution.ExecutionStrategyParameters.newParameters
-import static ExecutionTypeInfo.newTypeInfo
 
 class ExecutionStrategyParametersTest extends Specification {
 
     def "ExecutionParameters can be transformed"() {
         given:
         def parameters = newParameters()
-                .typeInfo(newTypeInfo().type(GraphQLString))
+                .executionStepInfo(newExecutionStepInfo().type(GraphQLString))
                 .source(new Object())
                 .fields("a": [])
                 .build()
@@ -20,11 +20,11 @@ class ExecutionStrategyParametersTest extends Specification {
         def newParameters = parameters.transform { it -> it.source(123) }
 
         then:
-        newParameters.typeInfo() == parameters.typeInfo()
-        newParameters.fields() == parameters.fields()
+        newParameters.getExecutionStepInfo() == parameters.getExecutionStepInfo()
+        newParameters.getFields() == parameters.getFields()
 
-        newParameters.source() != parameters.source()
-        newParameters.source() == 123
+        newParameters.getSource() != parameters.getSource()
+        newParameters.getSource() == 123
     }
 
 }

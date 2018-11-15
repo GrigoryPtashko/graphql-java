@@ -2,12 +2,22 @@ package graphql.schema;
 
 
 import graphql.PublicApi;
+import graphql.util.TraversalControl;
+import graphql.util.TraverserContext;
 
-import java.util.Map;
+import java.util.Collections;
+import java.util.List;
 
 import static graphql.Assert.assertNotNull;
+import static graphql.Assert.assertTrue;
 
+/**
+ * A modified type that indicates there the underlying wrapped type will not be null.
+ *
+ * See http://graphql.org/learn/schema/#lists-and-non-null for more details on the concept
+ */
 @PublicApi
+
 public class GraphQLNonNull implements GraphQLType, GraphQLInputType, GraphQLOutputType, GraphQLModifiedType {
 
     /**
@@ -16,6 +26,7 @@ public class GraphQLNonNull implements GraphQLType, GraphQLInputType, GraphQLOut
      * {@code .type(nonNull(GraphQLString)) }
      *
      * @param wrappedType the type to wrap as being non null
+     *
      * @return a GraphQLNonNull of that wrapped type
      */
     public static GraphQLNonNull nonNull(GraphQLType wrappedType) {
@@ -26,15 +37,24 @@ public class GraphQLNonNull implements GraphQLType, GraphQLInputType, GraphQLOut
 
     public GraphQLNonNull(GraphQLType wrappedType) {
         assertNotNull(wrappedType, "wrappedType can't be null");
+        assertNonNullWrapping(wrappedType);
         this.wrappedType = wrappedType;
     }
 
+    private void assertNonNullWrapping(GraphQLType wrappedType) {
+        assertTrue(!GraphQLTypeUtil.isNonNull(wrappedType), String.format("A non null type cannot wrap an existing non null type '%s'",
+                GraphQLTypeUtil.simplePrint(wrappedType)));
+    }
+
+    @Override
     public GraphQLType getWrappedType() {
         return wrappedType;
     }
 
-    void replaceTypeReferences(Map<String, GraphQLType> typeMap) {
-        wrappedType = new SchemaUtil().resolveTypeReference(wrappedType, typeMap);
+
+    void replaceType(GraphQLType type) {
+        assertNonNullWrapping(type);
+        wrappedType = type;
     }
 
     @Override
@@ -55,13 +75,21 @@ public class GraphQLNonNull implements GraphQLType, GraphQLInputType, GraphQLOut
 
     @Override
     public String toString() {
-        return "GraphQLNonNull{" +
-                "wrappedType=" + wrappedType +
-                '}';
+        return GraphQLTypeUtil.simplePrint(this);
     }
 
     @Override
     public String getName() {
         return null;
+    }
+
+    @Override
+    public TraversalControl accept(TraverserContext<GraphQLType> context, GraphQLTypeVisitor visitor) {
+        return visitor.visitGraphQLNonNull(this, context);
+    }
+
+    @Override
+    public List<GraphQLType> getChildren() {
+        return Collections.singletonList(wrappedType);
     }
 }

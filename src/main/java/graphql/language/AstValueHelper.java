@@ -1,7 +1,11 @@
 package graphql.language;
 
+import graphql.Assert;
 import graphql.AssertException;
+import graphql.GraphQLException;
+import graphql.Internal;
 import graphql.Scalars;
+import graphql.parser.Parser;
 import graphql.schema.GraphQLEnumType;
 import graphql.schema.GraphQLInputObjectField;
 import graphql.schema.GraphQLInputObjectType;
@@ -24,6 +28,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static graphql.schema.GraphQLTypeUtil.isList;
+import static graphql.schema.GraphQLTypeUtil.isNonNull;
+
+@Internal
 public class AstValueHelper {
 
     /**
@@ -53,13 +61,13 @@ public class AstValueHelper {
             return null;
         }
 
-        if (type instanceof GraphQLNonNull) {
+        if (isNonNull(type)) {
             return handleNonNull(value, (GraphQLNonNull) type);
         }
 
         // Convert JavaScript array to GraphQL list. If the GraphQLType is a list, but
         // the value is not an array, convert the value using the list's item type.
-        if (type instanceof GraphQLList) {
+        if (isList(type)) {
             return handleList(value, (GraphQLList) type);
         }
 
@@ -82,7 +90,7 @@ public class AstValueHelper {
 
         // Others serialize based on their corresponding JavaScript scalar types.
         if (serialized instanceof Boolean) {
-            return new BooleanValue((Boolean) serialized);
+            return BooleanValue.newBooleanValue().value((Boolean) serialized).build();
         }
 
         String stringValue = serialized.toString();
@@ -94,16 +102,16 @@ public class AstValueHelper {
         if (serialized instanceof String) {
             // Enum types use Enum literals.
             if (type instanceof GraphQLEnumType) {
-                return new EnumValue(stringValue);
+                return EnumValue.newEnumValue().name(stringValue).build();
             }
 
             // ID types can use Int literals.
             if (type == Scalars.GraphQLID && stringValue.matches("^[0-9]+$")) {
-                return new IntValue(new BigInteger(stringValue));
+                return IntValue.newIntValue().value(new BigInteger(stringValue)).build();
             }
 
             // String types are just strings but JSON'ised
-            return new StringValue(jsonStringify(stringValue));
+            return StringValue.newStringValue().value(jsonStringify(stringValue)).build();
         }
 
         throw new AssertException("'Cannot convert value to AST: " + serialized);
@@ -118,17 +126,17 @@ public class AstValueHelper {
             Value nodeValue = astFromValue(mapValue.get(field.getName()), fieldType);
             if (nodeValue != null) {
 
-                fieldNodes.add(new ObjectField(field.getName(), nodeValue));
+                fieldNodes.add(ObjectField.newObjectField().name(field.getName()).value(nodeValue).build());
             }
         });
-        return new ObjectValue(fieldNodes);
+        return ObjectValue.newObjectValue().objectFields(fieldNodes).build();
     }
 
     private static Value handleNumber(String stringValue) {
         if (stringValue.matches("^[0-9]+$")) {
-            return new IntValue(new BigInteger(stringValue));
+            return IntValue.newIntValue().value(new BigInteger(stringValue)).build();
         } else {
-            return new FloatValue(new BigDecimal(stringValue));
+            return FloatValue.newFloatValue().value(new BigDecimal(stringValue)).build();
         }
     }
 
@@ -143,7 +151,7 @@ public class AstValueHelper {
                     valuesNodes.add(itemNode);
                 }
             }
-            return new ArrayValue(valuesNodes);
+            return ArrayValue.newArrayValue().values(valuesNodes).build();
         }
         return astFromValue(_value, itemType);
     }
@@ -153,15 +161,46 @@ public class AstValueHelper {
         return astFromValue(_value, wrappedType);
     }
 
-    private static String jsonStringify(String stringValue) {
-        stringValue = stringValue.replace("\"", "\\\"");
-        stringValue = stringValue.replace("\\", "\\\\");
-        stringValue = stringValue.replace("/", "\\/");
-        stringValue = stringValue.replace("\f", "\\f");
-        stringValue = stringValue.replace("\n", "\\n");
-        stringValue = stringValue.replace("\r", "\\r");
-        stringValue = stringValue.replace("\t", "\\t");
-        return stringValue;
+    /**
+     * Encodes the value as a JSON string according to http://json.org/ rules
+     *
+     * @param stringValue the value to encode as a JSON string
+     *
+     * @return the encoded string
+     */
+    static String jsonStringify(String stringValue) {
+        StringBuilder sb = new StringBuilder();
+        for (char ch : stringValue.toCharArray()) {
+            switch (ch) {
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '/':
+                    sb.append("\\/");
+                    break;
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                default:
+                    sb.append(ch);
+            }
+        }
+        return sb.toString();
     }
 
     private static Object serialize(GraphQLType type, Object value) {
@@ -193,8 +232,32 @@ public class AstValueHelper {
                     result.put(pd.getName(), reader.invoke(value));
             }
         } catch (IntrospectionException | InvocationTargetException | IllegalAccessException e) {
-            throw new RuntimeException(e);
+            throw new GraphQLException(e);
         }
         return result;
+    }
+
+    /**
+     * Parses an AST value literal into the correct {@link graphql.language.Value} which
+     * MUST be of the correct shape eg '"string"' or 'true' or '1' or '{ "object", "form" }'
+     * or '[ "array", "form" ]' otherwise an exception is thrown
+     *
+     * @param astLiteral the string to parse an AST literal
+     *
+     * @return a valid Value
+     *
+     * @throws graphql.AssertException if the input can be parsed
+     */
+    public static Value valueFromAst(String astLiteral) {
+        // we use the parser to give us the AST elements as if we defined an inputType
+        String toParse = "input X { x : String = " + astLiteral + "}";
+        try {
+            Document doc = new Parser().parseDocument(toParse);
+            InputObjectTypeDefinition inputType = (InputObjectTypeDefinition) doc.getDefinitions().get(0);
+            InputValueDefinition inputValueDefinition = inputType.getInputValueDefinitions().get(0);
+            return inputValueDefinition.getDefaultValue();
+        } catch (Exception e) {
+            return Assert.assertShouldNeverHappen("valueFromAst of '%s' failed because of '%s'", astLiteral, e.getMessage());
+        }
     }
 }

@@ -1,5 +1,9 @@
 package graphql.language;
 
 
-public interface Type extends Node {
+import graphql.PublicApi;
+
+@PublicApi
+public interface Type<T extends Type> extends Node<T> {
+
 }

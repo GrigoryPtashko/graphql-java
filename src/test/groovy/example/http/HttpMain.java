@@ -4,15 +4,27 @@ import graphql.ExecutionInput;
 import graphql.ExecutionResult;
 import graphql.GraphQL;
 import graphql.StarWarsData;
+import graphql.execution.instrumentation.ChainedInstrumentation;
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.dataloader.DataLoaderDispatcherInstrumentation;
 import graphql.execution.instrumentation.tracing.TracingInstrumentation;
+import graphql.schema.DataFetcher;
+import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLSchema;
+import graphql.schema.TypeResolver;
 import graphql.schema.idl.RuntimeWiring;
 import graphql.schema.idl.SchemaGenerator;
 import graphql.schema.idl.SchemaParser;
 import graphql.schema.idl.TypeDefinitionRegistry;
+import org.dataloader.BatchLoader;
+import org.dataloader.DataLoader;
+import org.dataloader.DataLoaderRegistry;
+import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.server.handler.HandlerList;
+import org.eclipse.jetty.server.handler.ResourceHandler;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -21,17 +33,24 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import static graphql.ExecutionInput.newExecutionInput;
+import static graphql.execution.instrumentation.dataloader.DataLoaderDispatcherInstrumentationOptions.newOptions;
 import static graphql.schema.idl.TypeRuntimeWiring.newTypeWiring;
+import static java.util.Arrays.asList;
 
 /**
  * An very simple example of serving a qraphql schema over http.
  * <p>
  * More info can be found here : http://graphql.org/learn/serving-over-http/
  */
+@SuppressWarnings("unchecked")
 public class HttpMain extends AbstractHandler {
 
     static final int PORT = 3000;
@@ -43,7 +62,18 @@ public class HttpMain extends AbstractHandler {
         Server server = new Server(PORT);
         //
         // In Jetty, handlers are how your get called backed on a request
-        server.setHandler(new HttpMain());
+        HttpMain main_handler = new HttpMain();
+
+        ResourceHandler resource_handler = new ResourceHandler();
+        resource_handler.setDirectoriesListed(false);
+        resource_handler.setWelcomeFiles(new String[]{"index.html"});
+
+        resource_handler.setResourceBase("./src/test/resources/httpmain");
+
+        HandlerList handlers = new HandlerList();
+        handlers.setHandlers(new Handler[]{resource_handler, main_handler});
+        server.setHandler(handlers);
+
         server.start();
 
         server.join();
@@ -51,13 +81,17 @@ public class HttpMain extends AbstractHandler {
 
     @Override
     public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
-        if ("/graphql".equals(target) || "/".equals(target)) {
+        boolean handled = false;
+        if ("/graphql".equals(target)) {
             handleStarWars(request, response);
-        }
-        if (target.startsWith("/executionresult")) {
+            handled = true;
+        } else if (target.startsWith("/executionresult")) {
             new ExecutionResultJSONTesting(target, response);
+            handled = true;
         }
-        baseRequest.setHandled(true);
+        if (handled) {
+            baseRequest.setHandled(true);
+        }
     }
 
     private void handleStarWars(HttpServletRequest httpRequest, HttpServletResponse httpResponse) throws IOException {
@@ -71,10 +105,21 @@ public class HttpMain extends AbstractHandler {
             return;
         }
 
+        //
+        // This example uses the DataLoader technique to ensure that the most efficient
+        // loading of data (in this case StarWars characters) happens.
+        //
+        DataLoaderRegistry dataLoaderRegistry = buildDataLoaderRegistry();
+
+
         ExecutionInput.Builder executionInput = newExecutionInput()
                 .query(parameters.getQuery())
                 .operationName(parameters.getOperationName())
-                .variables(parameters.getVariables());
+                .variables(parameters.getVariables())
+                .dataLoaderRegistry(dataLoaderRegistry)
+                ;
+
+
 
         //
         // the context object is something that means something to down stream code.  It is instructions
@@ -96,11 +141,18 @@ public class HttpMain extends AbstractHandler {
         // you need a schema in order to execute queries
         GraphQLSchema schema = buildStarWarsSchema();
 
+        DataLoaderDispatcherInstrumentation dlInstrumentation =
+                new DataLoaderDispatcherInstrumentation(newOptions().includeStatistics(true));
+
+        Instrumentation instrumentation = new ChainedInstrumentation(
+                asList(new TracingInstrumentation(), dlInstrumentation)
+        );
+
         // finally you build a runtime graphql object and execute the query
         GraphQL graphQL = GraphQL
                 .newGraphQL(schema)
                 // instrumentation is pluggable
-                .instrumentation(new TracingInstrumentation())
+                .instrumentation(instrumentation)
                 .build();
         ExecutionResult executionResult = graphQL.execute(executionInput.build());
 
@@ -112,6 +164,26 @@ public class HttpMain extends AbstractHandler {
         response.setContentType("application/json");
         response.setStatus(HttpServletResponse.SC_OK);
         JsonKit.toJson(response, executionResult.toSpecification());
+    }
+
+    private DataLoaderRegistry buildDataLoaderRegistry() {
+        BatchLoader<String, Object> friendsBatchLoader = keys ->
+                //
+                // we are using multi threading here.  Imagine if loadCharactersViaHTTP was
+                // actually a HTTP call - its not be it could be done asynchronously as
+                // a batch API call
+                //
+                CompletableFuture.supplyAsync(() ->
+                        loadCharactersViaHTTP(keys));
+
+        DataLoader<String, Object> friendsDataLoader = new DataLoader<>(friendsBatchLoader);
+
+        DataLoaderRegistry dataLoaderRegistry = new DataLoaderRegistry();
+        //
+        // we make sure our dataloader is in the registry
+        dataLoaderRegistry.register("friends", friendsDataLoader);
+
+        return dataLoaderRegistry;
     }
 
     private GraphQLSchema buildStarWarsSchema() {
@@ -126,6 +198,19 @@ public class HttpMain extends AbstractHandler {
         if (starWarsSchema == null) {
 
             //
+            //
+            // the fetcher of friends uses java-dataloader to make the circular friends fetching
+            // more efficient by batching and caching the calls to load Character friends
+            //
+            DataFetcher friendsFetcher = environment -> {
+                DataLoader friendsDataLoader = environment.getDataLoader("friends");
+
+                List<String> friendIds = asMapGet(environment.getSource(), "friends");
+                return friendsDataLoader.loadMany(friendIds);
+            };
+
+
+            //
             // reads a file that provides the schema types
             //
             Reader streamReader = loadSchemaFile("starWarsSchemaAnnotated.graphqls");
@@ -135,6 +220,16 @@ public class HttpMain extends AbstractHandler {
             // the runtime wiring is used to provide the code that backs the
             // logical schema
             //
+            TypeResolver characterTypeResolver = env -> {
+                Map<String, Object> obj = env.getObject();
+                String id = (String) obj.get("id");
+                GraphQLSchema schema = env.getSchema();
+                if (StarWarsData.isHuman(id)) {
+                    return (GraphQLObjectType) schema.getType("Human");
+                } else {
+                    return (GraphQLObjectType) schema.getType("Droid");
+                }
+            };
             RuntimeWiring wiring = RuntimeWiring.newRuntimeWiring()
                     .type(newTypeWiring("Query")
                             .dataFetcher("hero", StarWarsData.getHeroDataFetcher())
@@ -142,14 +237,14 @@ public class HttpMain extends AbstractHandler {
                             .dataFetcher("droid", StarWarsData.getDroidDataFetcher())
                     )
                     .type(newTypeWiring("Human")
-                            .dataFetcher("friends", StarWarsData.getFriendsDataFetcher())
+                            .dataFetcher("friends", friendsFetcher)
                     )
                     .type(newTypeWiring("Droid")
-                            .dataFetcher("friends", StarWarsData.getFriendsDataFetcher())
+                            .dataFetcher("friends", friendsFetcher)
                     )
 
                     .type(newTypeWiring("Character")
-                            .typeResolver(StarWarsData.getCharacterTypeResolver())
+                            .typeResolver(characterTypeResolver)
                     )
                     .type(newTypeWiring("Episode")
                             .enumValues(StarWarsData.getEpisodeResolver())
@@ -162,8 +257,27 @@ public class HttpMain extends AbstractHandler {
         return starWarsSchema;
     }
 
+    private List<Object> loadCharactersViaHTTP(List<String> keys) {
+        List<Object> values = new ArrayList<>();
+        for (String key : keys) {
+            Object character = StarWarsData.getCharacter(key);
+            values.add(character);
+        }
+        return values;
+    }
+
+    @SuppressWarnings("SameParameterValue")
     private Reader loadSchemaFile(String name) {
         InputStream stream = getClass().getClassLoader().getResourceAsStream(name);
-        return new InputStreamReader(stream);
+        return new InputStreamReader(stream, Charset.defaultCharset());
+    }
+
+    // Lots of the data happens to be maps of objects and this allows us to get back into type safety land
+    // with less boiler plate and casts
+    //
+    @SuppressWarnings("TypeParameterUnusedInFormals")
+    private <T> T asMapGet(Object mapObj, Object mapKey) {
+        Map<Object, ?> map = (Map<Object, ?>) mapObj;
+        return (T) map.get(mapKey);
     }
 }

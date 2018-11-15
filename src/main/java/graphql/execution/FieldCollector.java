@@ -28,14 +28,7 @@ import static graphql.execution.TypeFromAST.getTypeFromAST;
 @Internal
 public class FieldCollector {
 
-    private ConditionalNodes conditionalNodes;
-
-    private SchemaUtil schemaUtil = new SchemaUtil();
-
-    public FieldCollector() {
-        conditionalNodes = new ConditionalNodes();
-    }
-
+    private final ConditionalNodes conditionalNodes = new ConditionalNodes();
 
     /**
      * Given a list of fields this will collect the sub-field selections and return it as a map
@@ -150,7 +143,7 @@ public class FieldCollector {
         }
 
         if (conditionType instanceof GraphQLInterfaceType) {
-            List<GraphQLObjectType> implementations = schemaUtil.findImplementations(parameters.getGraphQLSchema(), (GraphQLInterfaceType) conditionType);
+            List<GraphQLObjectType> implementations = parameters.getGraphQLSchema().getImplementations((GraphQLInterfaceType)conditionType);
             return implementations.contains(type);
         } else if (conditionType instanceof GraphQLUnionType) {
             return ((GraphQLUnionType) conditionType).getTypes().contains(type);

@@ -1,14 +1,17 @@
 package graphql;
 
 
-import graphql.schema.*;
+import graphql.schema.DataFetcher;
+import graphql.schema.GraphQLNonNull;
+import graphql.schema.GraphQLObjectType;
+import graphql.schema.GraphQLSchema;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
 
 import static graphql.schema.GraphQLArgument.newArgument;
 import static graphql.schema.GraphQLFieldDefinition.newFieldDefinition;
 import static graphql.schema.GraphQLObjectType.newObject;
-
-import java.math.BigDecimal;
-import java.math.BigInteger;
 
 public class ScalarsQuerySchema {
 
@@ -29,45 +32,39 @@ public class ScalarsQuerySchema {
                     .name("floatNaN")
                     .type(Scalars.GraphQLFloat)
                     .staticValue(Double.NaN))
-            
-            
-            
-            
+
+
             /** Scalars with input of same type, value echoed back */
             .field(newFieldDefinition()
                     .name("bigIntegerInput")
                     .type(Scalars.GraphQLBigInteger)
                     .argument(newArgument()
                             .name("input")
-                            .type(new GraphQLNonNull(Scalars.GraphQLBigInteger)))
+                            .type(GraphQLNonNull.nonNull(Scalars.GraphQLBigInteger)))
                     .dataFetcher(inputDF))
             .field(newFieldDefinition()
                     .name("bigDecimalInput")
                     .type(Scalars.GraphQLBigDecimal)
                     .argument(newArgument()
                             .name("input")
-                            .type(new GraphQLNonNull(Scalars.GraphQLBigDecimal)))
+                            .type(GraphQLNonNull.nonNull(Scalars.GraphQLBigDecimal)))
                     .dataFetcher(inputDF))
             .field(newFieldDefinition()
                     .name("floatNaNInput")
                     .type(Scalars.GraphQLFloat)
                     .argument(newArgument()
                             .name("input")
-                            .type(new GraphQLNonNull(Scalars.GraphQLFloat)))
+                            .type(GraphQLNonNull.nonNull(Scalars.GraphQLFloat)))
                     .dataFetcher(inputDF))
             .field(newFieldDefinition()
                     .name("stringInput")
                     .type(Scalars.GraphQLString)
                     .argument(newArgument()
                             .name("input")
-                            .type(new GraphQLNonNull(Scalars.GraphQLString)))
+                            .type(GraphQLNonNull.nonNull(Scalars.GraphQLString)))
                     .dataFetcher(inputDF))
 
-            
-            
-            
-            
-            
+
             /** Scalars with input of String, cast to scalar */
             .field(newFieldDefinition()
                     .name("bigIntegerString")

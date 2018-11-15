@@ -1,10 +1,12 @@
 package graphql.language;
 
 
-import java.util.List;
-import java.util.Map;
+import graphql.PublicApi;
 
-public interface TypeDefinition extends Node, Definition {
+import java.util.List;
+
+@PublicApi
+public interface TypeDefinition<T extends TypeDefinition> extends SDLDefinition<T> {
     /**
      * @return the name of the type being defined.
      */

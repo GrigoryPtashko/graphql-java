@@ -3,8 +3,6 @@ package graphql.schema.validation;
 import graphql.schema.GraphQLArgument;
 import graphql.schema.GraphQLFieldDefinition;
 import graphql.schema.GraphQLInterfaceType;
-import graphql.schema.GraphQLList;
-import graphql.schema.GraphQLNonNull;
 import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLOutputType;
 import graphql.schema.GraphQLType;
@@ -13,7 +11,10 @@ import graphql.schema.GraphQLUnionType;
 import java.util.List;
 import java.util.Objects;
 
-import static graphql.schema.GraphQLTypeUtil.getUnwrappedTypeName;
+import static graphql.schema.GraphQLTypeUtil.simplePrint;
+import static graphql.schema.GraphQLTypeUtil.isList;
+import static graphql.schema.GraphQLTypeUtil.isNonNull;
+import static graphql.schema.GraphQLTypeUtil.unwrapOne;
 import static graphql.schema.validation.SchemaValidationErrorType.ObjectDoesNotImplementItsInterfaces;
 import static java.lang.String.format;
 
@@ -60,8 +61,8 @@ public class ObjectsImplementInterfaces implements SchemaValidationRule {
     }
 
     private void checkFieldTypeCompatibility(GraphQLObjectType objectType, GraphQLInterfaceType interfaceType, SchemaValidationErrorCollector validationErrorCollector, GraphQLFieldDefinition interfaceFieldDef, GraphQLFieldDefinition objectFieldDef) {
-        String interfaceFieldDefStr = getUnwrappedTypeName(interfaceFieldDef.getType());
-        String objectFieldDefStr = getUnwrappedTypeName(objectFieldDef.getType());
+        String interfaceFieldDefStr = simplePrint(interfaceFieldDef.getType());
+        String objectFieldDefStr = simplePrint(objectFieldDef.getType());
 
         if (!isCompatible(interfaceFieldDef.getType(), objectFieldDef.getType())) {
             validationErrorCollector.addError(
@@ -108,7 +109,7 @@ public class ObjectsImplementInterfaces implements SchemaValidationRule {
         // we don't do default value checking because toString of getDefaultValue is not guaranteed to be stable
         return argument.getName() +
                 ":" +
-                getUnwrappedTypeName(argument.getType());
+                simplePrint(argument.getType());
 
     }
 
@@ -116,28 +117,37 @@ public class ObjectsImplementInterfaces implements SchemaValidationRule {
         return new SchemaValidationError(ObjectDoesNotImplementItsInterfaces, msg);
     }
 
-    boolean isCompatible(GraphQLOutputType a, GraphQLOutputType b) {
-        if (isSameType(a, b)) {
+    /**
+     * @return {@code true} if the specified objectType satisfies the constraintType.
+     */
+    boolean isCompatible(GraphQLOutputType constraintType, GraphQLOutputType objectType) {
+        if (isSameType(constraintType, objectType)) {
             return true;
-        } else if (a instanceof GraphQLUnionType) {
-            return objectIsMemberOfUnion((GraphQLUnionType) a, b);
-        } else if (a instanceof GraphQLInterfaceType && b instanceof GraphQLObjectType) {
-            return objectImplementsInterface((GraphQLInterfaceType) a, (GraphQLObjectType) b);
-        } else if (a instanceof GraphQLList && b instanceof GraphQLList) {
-            GraphQLOutputType wrappedA = (GraphQLOutputType) ((GraphQLList) a).getWrappedType();
-            GraphQLOutputType wrappedB = (GraphQLOutputType) ((GraphQLList) b).getWrappedType();
-            return isCompatible(wrappedA, wrappedB);
-        } else if (b instanceof GraphQLNonNull) {
-            GraphQLOutputType wrappedB = (GraphQLOutputType) ((GraphQLNonNull) b).getWrappedType();
-            return isCompatible(a, wrappedB);
+        } else if (constraintType instanceof GraphQLUnionType) {
+            return objectIsMemberOfUnion((GraphQLUnionType) constraintType, objectType);
+        } else if (constraintType instanceof GraphQLInterfaceType && objectType instanceof GraphQLObjectType) {
+            return objectImplementsInterface((GraphQLInterfaceType) constraintType, (GraphQLObjectType) objectType);
+        } else if (isList(constraintType) && isList(objectType)) {
+            GraphQLOutputType wrappedConstraintType = (GraphQLOutputType) unwrapOne(constraintType);
+            GraphQLOutputType wrappedObjectType = (GraphQLOutputType) unwrapOne(objectType);
+            return isCompatible(wrappedConstraintType, wrappedObjectType);
+        } else if (isNonNull(objectType)) {
+            GraphQLOutputType nullableConstraint;
+            if (isNonNull(constraintType)) {
+                nullableConstraint = (GraphQLOutputType) unwrapOne(constraintType);
+            } else {
+                nullableConstraint = constraintType;
+            }
+            GraphQLOutputType nullableObjectType = (GraphQLOutputType) unwrapOne(objectType);
+            return isCompatible(nullableConstraint, nullableObjectType);
         } else {
             return false;
         }
     }
 
     boolean isSameType(GraphQLOutputType a, GraphQLOutputType b) {
-        String aDefString = getUnwrappedTypeName(a);
-        String bDefString = getUnwrappedTypeName(b);
+        String aDefString = simplePrint(a);
+        String bDefString = simplePrint(b);
         return aDefString.equals(bDefString);
     }
 

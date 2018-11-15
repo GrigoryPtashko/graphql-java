@@ -1,15 +1,20 @@
 package graphql.execution.instrumentation
 
+import graphql.ExecutionInput
 import graphql.ExecutionResult
-import graphql.execution.instrumentation.parameters.InstrumentationDataFetchParameters
+import graphql.execution.ExecutionContext
+import graphql.execution.instrumentation.parameters.InstrumentationDeferredFieldParameters
+import graphql.execution.instrumentation.parameters.InstrumentationExecuteOperationParameters
 import graphql.execution.instrumentation.parameters.InstrumentationExecutionParameters
 import graphql.execution.instrumentation.parameters.InstrumentationExecutionStrategyParameters
+import graphql.execution.instrumentation.parameters.InstrumentationFieldCompleteParameters
 import graphql.execution.instrumentation.parameters.InstrumentationFieldFetchParameters
 import graphql.execution.instrumentation.parameters.InstrumentationFieldParameters
 import graphql.execution.instrumentation.parameters.InstrumentationValidationParameters
 import graphql.language.Document
 import graphql.schema.DataFetcher
 import graphql.schema.DataFetchingEnvironment
+import graphql.schema.GraphQLSchema
 import graphql.validation.ValidationError
 
 import java.util.concurrent.CompletableFuture
@@ -46,15 +51,21 @@ class TestingInstrumentation implements Instrumentation {
     }
 
     @Override
-    InstrumentationContext<CompletableFuture<ExecutionResult>> beginExecutionStrategy(InstrumentationExecutionStrategyParameters parameters) {
+    ExecutionStrategyInstrumentationContext beginExecutionStrategy(InstrumentationExecutionStrategyParameters parameters) {
         assert parameters.getInstrumentationState() == instrumentationState
-        return new TestingInstrumentContext("execution-strategy", executionList, throwableList)
+        return new TestingExecutionStrategyInstrumentationContext("execution-strategy", executionList, throwableList)
     }
 
     @Override
-    InstrumentationContext<ExecutionResult> beginDataFetch(InstrumentationDataFetchParameters parameters) {
+    InstrumentationContext<ExecutionResult> beginExecuteOperation(InstrumentationExecuteOperationParameters parameters) {
         assert parameters.getInstrumentationState() == instrumentationState
-        return new TestingInstrumentContext("data-fetch", executionList, throwableList)
+        return new TestingInstrumentContext("execute-operation", executionList, throwableList)
+    }
+
+    @Override
+    DeferredFieldInstrumentationContext beginDeferredField(InstrumentationDeferredFieldParameters parameters) {
+        assert parameters.getInstrumentationState() == instrumentationState
+        return new TestingInstrumentContext("deferred-field-$parameters.field.name", executionList, throwableList)
     }
 
     @Override
@@ -67,6 +78,36 @@ class TestingInstrumentation implements Instrumentation {
     InstrumentationContext<Object> beginFieldFetch(InstrumentationFieldFetchParameters parameters) {
         assert parameters.getInstrumentationState() == instrumentationState
         return new TestingInstrumentContext("fetch-$parameters.field.name", executionList, throwableList)
+    }
+
+    @Override
+    InstrumentationContext<CompletableFuture<ExecutionResult>> beginFieldComplete(InstrumentationFieldCompleteParameters parameters) {
+        assert parameters.getInstrumentationState() == instrumentationState
+        return new TestingInstrumentContext("complete-$parameters.field.name", executionList, throwableList)
+    }
+
+    @Override
+    InstrumentationContext<CompletableFuture<ExecutionResult>> beginFieldListComplete(InstrumentationFieldCompleteParameters parameters) {
+        assert parameters.getInstrumentationState() == instrumentationState
+        return new TestingInstrumentContext("complete-list-$parameters.field.name", executionList, throwableList)
+    }
+
+    @Override
+    GraphQLSchema instrumentSchema(GraphQLSchema schema, InstrumentationExecutionParameters parameters) {
+        assert parameters.getInstrumentationState() == instrumentationState
+        return schema
+    }
+
+    @Override
+    ExecutionInput instrumentExecutionInput(ExecutionInput executionInput, InstrumentationExecutionParameters parameters) {
+        assert parameters.getInstrumentationState() == instrumentationState
+        return executionInput
+    }
+
+    @Override
+    ExecutionContext instrumentExecutionContext(ExecutionContext executionContext, InstrumentationExecutionParameters parameters) {
+        assert parameters.getInstrumentationState() == instrumentationState
+        return executionContext
     }
 
     @Override

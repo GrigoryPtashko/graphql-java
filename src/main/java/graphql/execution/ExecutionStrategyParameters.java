@@ -2,6 +2,7 @@ package graphql.execution;
 
 import graphql.Assert;
 import graphql.PublicApi;
+import graphql.execution.defer.DeferredErrorSupport;
 import graphql.language.Field;
 
 import java.util.List;
@@ -15,46 +16,81 @@ import static graphql.Assert.assertNotNull;
  */
 @PublicApi
 public class ExecutionStrategyParameters {
-    private final ExecutionTypeInfo typeInfo;
+    private final ExecutionStepInfo executionStepInfo;
     private final Object source;
     private final Map<String, Object> arguments;
     private final Map<String, List<Field>> fields;
     private final NonNullableFieldValidator nonNullableFieldValidator;
     private final ExecutionPath path;
     private final List<Field> currentField;
+    private final int listSize;
+    private final int currentListIndex;
+    private final ExecutionStrategyParameters parent;
+    private final DeferredErrorSupport deferredErrorSupport;
 
-    private ExecutionStrategyParameters(ExecutionTypeInfo typeInfo, Object source, Map<String, List<Field>> fields, Map<String, Object> arguments, NonNullableFieldValidator nonNullableFieldValidator, ExecutionPath path, List<Field> currentField) {
-        this.typeInfo = assertNotNull(typeInfo, "typeInfo is null");
+    private ExecutionStrategyParameters(ExecutionStepInfo executionStepInfo,
+                                        Object source,
+                                        Map<String, List<Field>> fields,
+                                        Map<String, Object> arguments,
+                                        NonNullableFieldValidator nonNullableFieldValidator,
+                                        ExecutionPath path,
+                                        List<Field> currentField,
+                                        int listSize,
+                                        int currentListIndex,
+                                        ExecutionStrategyParameters parent,
+                                        DeferredErrorSupport deferredErrorSupport) {
+
+        this.executionStepInfo = assertNotNull(executionStepInfo, "executionStepInfo is null");
         this.fields = assertNotNull(fields, "fields is null");
         this.source = source;
         this.arguments = arguments;
         this.nonNullableFieldValidator = nonNullableFieldValidator;
         this.path = path;
         this.currentField = currentField;
+        this.listSize = listSize;
+        this.currentListIndex = currentListIndex;
+        this.parent = parent;
+        this.deferredErrorSupport = deferredErrorSupport;
     }
 
-    public ExecutionTypeInfo typeInfo() {
-        return typeInfo;
+    public ExecutionStepInfo getExecutionStepInfo() {
+        return executionStepInfo;
     }
 
-    public Object source() {
+    public Object getSource() {
         return source;
     }
 
-    public Map<String, List<Field>> fields() {
+    public Map<String, List<Field>> getFields() {
         return fields;
     }
 
-    public Map<String, Object> arguments() {
+    public Map<String, Object> getArguments() {
         return arguments;
     }
 
-    public NonNullableFieldValidator nonNullFieldValidator() {
+    public NonNullableFieldValidator getNonNullFieldValidator() {
         return nonNullableFieldValidator;
     }
 
-    public ExecutionPath path() {
+    public ExecutionPath getPath() {
         return path;
+    }
+
+    public int getListSize() {
+        return listSize;
+    }
+
+    public int getCurrentListIndex() {
+        return currentListIndex;
+    }
+
+    public ExecutionStrategyParameters getParent() {
+        return parent;
+    }
+
+    public DeferredErrorSupport deferredErrorSupport() {
+        return deferredErrorSupport;
     }
 
     /**
@@ -64,7 +100,7 @@ public class ExecutionStrategyParameters {
      *
      * @return the current field in list form  or null if this has not be computed yet
      */
-    public List<Field> field() {
+    public List<Field> getField() {
         return currentField;
     }
 
@@ -76,8 +112,8 @@ public class ExecutionStrategyParameters {
 
     @Override
     public String toString() {
-        return String.format("ExecutionStrategyParameters { path=%s, typeInfo=%s, source=%s, fields=%s }",
-                path, typeInfo, source, fields);
+        return String.format("ExecutionStrategyParameters { path=%s, executionStepInfo=%s, source=%s, fields=%s }",
+                path, executionStepInfo, source, fields);
     }
 
     public static Builder newParameters() {
@@ -89,13 +125,17 @@ public class ExecutionStrategyParameters {
     }
 
     public static class Builder {
-        ExecutionTypeInfo typeInfo;
+        ExecutionStepInfo executionStepInfo;
         Object source;
         Map<String, List<Field>> fields;
         Map<String, Object> arguments;
         NonNullableFieldValidator nonNullableFieldValidator;
         ExecutionPath path = ExecutionPath.rootPath();
         List<Field> currentField;
+        int listSize;
+        int currentListIndex;
+        ExecutionStrategyParameters parent;
+        DeferredErrorSupport deferredErrorSupport = new DeferredErrorSupport();
 
         /**
          * @see ExecutionStrategyParameters#newParameters()
@@ -107,20 +147,26 @@ public class ExecutionStrategyParameters {
          * @see ExecutionStrategyParameters#newParameters(ExecutionStrategyParameters)
          */
         private Builder(ExecutionStrategyParameters oldParameters) {
-            this.typeInfo = oldParameters.typeInfo;
+            this.executionStepInfo = oldParameters.executionStepInfo;
             this.source = oldParameters.source;
             this.fields = oldParameters.fields;
             this.arguments = oldParameters.arguments;
             this.nonNullableFieldValidator = oldParameters.nonNullableFieldValidator;
+            this.currentField = oldParameters.currentField;
+            this.deferredErrorSupport = oldParameters.deferredErrorSupport;
+            this.path = oldParameters.path;
+            this.parent = oldParameters.parent;
+            this.listSize = oldParameters.listSize;
+            this.currentListIndex = oldParameters.currentListIndex;
         }
 
-        public Builder typeInfo(ExecutionTypeInfo type) {
-            this.typeInfo = type;
+        public Builder executionStepInfo(ExecutionStepInfo executionStepInfo) {
+            this.executionStepInfo = executionStepInfo;
             return this;
         }
 
-        public Builder typeInfo(ExecutionTypeInfo.Builder type) {
-            this.typeInfo = type.build();
+        public Builder executionStepInfo(ExecutionStepInfo.Builder executionStepInfoBuilder) {
+            this.executionStepInfo = executionStepInfoBuilder.build();
             return this;
         }
 
@@ -154,8 +200,28 @@ public class ExecutionStrategyParameters {
             return this;
         }
 
+        public Builder listSize(int listSize) {
+            this.listSize = listSize;
+            return this;
+        }
+
+        public Builder currentListIndex(int currentListIndex) {
+            this.currentListIndex = currentListIndex;
+            return this;
+        }
+
+        public Builder parent(ExecutionStrategyParameters parent) {
+            this.parent = parent;
+            return this;
+        }
+
+        public Builder deferredErrorSupport(DeferredErrorSupport deferredErrorSupport) {
+            this.deferredErrorSupport = deferredErrorSupport;
+            return this;
+        }
+
         public ExecutionStrategyParameters build() {
-            return new ExecutionStrategyParameters(typeInfo, source, fields, arguments, nonNullableFieldValidator, path, currentField);
+            return new ExecutionStrategyParameters(executionStepInfo, source, fields, arguments, nonNullableFieldValidator, path, currentField, listSize, currentListIndex, parent, deferredErrorSupport);
         }
     }
 }

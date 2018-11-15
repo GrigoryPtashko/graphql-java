@@ -1,6 +1,6 @@
 package graphql.execution
 
-import graphql.execution.instrumentation.NoOpInstrumentation
+import graphql.execution.instrumentation.SimpleInstrumentation
 import graphql.language.Field
 import graphql.language.OperationDefinition
 import graphql.parser.Parser
@@ -73,7 +73,7 @@ class AsyncSerialExecutionStrategyTest extends Specification {
         def document = new Parser().parseDocument(query)
         def operation = document.definitions[0] as OperationDefinition
 
-        def typeInfo = ExecutionTypeInfo.newTypeInfo()
+        def typeInfo = ExecutionStepInfo.newExecutionStepInfo()
                 .type(schema.getQueryType())
                 .build()
 
@@ -81,11 +81,11 @@ class AsyncSerialExecutionStrategyTest extends Specification {
                 .graphQLSchema(schema)
                 .executionId(ExecutionId.generate())
                 .operationDefinition(operation)
-                .instrumentation(NoOpInstrumentation.INSTANCE)
+                .instrumentation(SimpleInstrumentation.INSTANCE)
                 .build()
         ExecutionStrategyParameters executionStrategyParameters = ExecutionStrategyParameters
                 .newParameters()
-                .typeInfo(typeInfo)
+                .executionStepInfo(typeInfo)
                 .fields(['hello': [new Field('hello')], 'hello2': [new Field('hello2')], 'hello3': [new Field('hello3')]])
                 .build()
 
@@ -116,7 +116,7 @@ class AsyncSerialExecutionStrategyTest extends Specification {
         def document = new Parser().parseDocument(query)
         def operation = document.definitions[0] as OperationDefinition
 
-        def typeInfo = ExecutionTypeInfo.newTypeInfo()
+        def typeInfo = ExecutionStepInfo.newExecutionStepInfo()
                 .type(schema.getQueryType())
                 .build()
 
@@ -124,11 +124,11 @@ class AsyncSerialExecutionStrategyTest extends Specification {
                 .graphQLSchema(schema)
                 .executionId(ExecutionId.generate())
                 .operationDefinition(operation)
-                .instrumentation(NoOpInstrumentation.INSTANCE)
+                .instrumentation(SimpleInstrumentation.INSTANCE)
                 .build()
         ExecutionStrategyParameters executionStrategyParameters = ExecutionStrategyParameters
                 .newParameters()
-                .typeInfo(typeInfo)
+                .executionStepInfo(typeInfo)
                 .fields(['hello': [new Field('hello')], 'hello2': [new Field('hello2')], 'hello3': [new Field('hello3')]])
                 .build()
 

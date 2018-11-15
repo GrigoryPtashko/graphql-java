@@ -1,24 +1,38 @@
 package graphql.language;
 
 
+import graphql.Internal;
+import graphql.PublicApi;
+import graphql.util.TraversalControl;
+import graphql.util.TraverserContext;
+
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
-public class IntValue extends AbstractNode implements Value {
+@PublicApi
+public class IntValue extends AbstractNode<IntValue> implements ScalarValue<IntValue> {
 
-    private BigInteger value;
+    private final BigInteger value;
 
-    public IntValue(BigInteger value) {
+    @Internal
+    protected IntValue(BigInteger value, SourceLocation sourceLocation, List<Comment> comments) {
+        super(sourceLocation, comments);
         this.value = value;
+    }
+
+    /**
+     * alternative to using a Builder for convenience
+     *
+     * @param value of the Int
+     */
+    public IntValue(BigInteger value) {
+        this(value, null, new ArrayList<>());
     }
 
     public BigInteger getValue() {
         return value;
-    }
-
-    public void setValue(BigInteger value) {
-        this.value = value;
     }
 
     @Override
@@ -37,11 +51,69 @@ public class IntValue extends AbstractNode implements Value {
 
     }
 
+    @Override
+    public IntValue deepCopy() {
+        return new IntValue(value, getSourceLocation(), getComments());
+    }
 
     @Override
     public String toString() {
         return "IntValue{" +
                 "value=" + value +
                 '}';
+    }
+
+    @Override
+    public TraversalControl accept(TraverserContext<Node> context, NodeVisitor visitor) {
+        return visitor.visitIntValue(this, context);
+    }
+
+    public static Builder newIntValue() {
+        return new Builder();
+    }
+
+    public static Builder newIntValue(BigInteger value) {
+        return new Builder().value(value);
+    }
+
+    public IntValue transform(Consumer<Builder> builderConsumer) {
+        Builder builder = new Builder(this);
+        builderConsumer.accept(builder);
+        return builder.build();
+    }
+
+    public static final class Builder implements NodeBuilder {
+        private SourceLocation sourceLocation;
+        private BigInteger value;
+        private List<Comment> comments = new ArrayList<>();
+
+        private Builder() {
+        }
+
+        private Builder(IntValue existing) {
+            this.sourceLocation = existing.getSourceLocation();
+            this.comments = existing.getComments();
+            this.value = existing.getValue();
+        }
+
+        public Builder sourceLocation(SourceLocation sourceLocation) {
+            this.sourceLocation = sourceLocation;
+            return this;
+        }
+
+        public Builder value(BigInteger value) {
+            this.value = value;
+            return this;
+        }
+
+        public Builder comments(List<Comment> comments) {
+            this.comments = comments;
+            return this;
+        }
+
+        public IntValue build() {
+            IntValue intValue = new IntValue(value, sourceLocation, comments);
+            return intValue;
+        }
     }
 }

@@ -1,8 +1,8 @@
 package graphql.validation;
 
 
+import graphql.Assert;
 import graphql.Internal;
-import graphql.ShouldNotHappenException;
 import graphql.execution.TypeFromAST;
 import graphql.language.Argument;
 import graphql.language.ArrayValue;
@@ -25,8 +25,6 @@ import graphql.schema.GraphQLInputObjectField;
 import graphql.schema.GraphQLInputObjectType;
 import graphql.schema.GraphQLInputType;
 import graphql.schema.GraphQLInterfaceType;
-import graphql.schema.GraphQLList;
-import graphql.schema.GraphQLNonNull;
 import graphql.schema.GraphQLNullableType;
 import graphql.schema.GraphQLObjectType;
 import graphql.schema.GraphQLOutputType;
@@ -42,18 +40,21 @@ import java.util.List;
 import static graphql.introspection.Introspection.SchemaMetaFieldDef;
 import static graphql.introspection.Introspection.TypeMetaFieldDef;
 import static graphql.introspection.Introspection.TypeNameMetaFieldDef;
+import static graphql.schema.GraphQLTypeUtil.isList;
+import static graphql.schema.GraphQLTypeUtil.isNonNull;
+import static graphql.schema.GraphQLTypeUtil.unwrapAll;
+import static graphql.schema.GraphQLTypeUtil.unwrapOne;
 
 @Internal
 public class TraversalContext implements DocumentVisitor {
-    GraphQLSchema schema;
-    List<GraphQLOutputType> outputTypeStack = new ArrayList<>();
-    List<GraphQLCompositeType> parentTypeStack = new ArrayList<>();
-    List<GraphQLInputType> inputTypeStack = new ArrayList<>();
-    List<GraphQLFieldDefinition> fieldDefStack = new ArrayList<>();
+    final GraphQLSchema schema;
+    final List<GraphQLOutputType> outputTypeStack = new ArrayList<>();
+    final List<GraphQLCompositeType> parentTypeStack = new ArrayList<>();
+    final List<GraphQLInputType> inputTypeStack = new ArrayList<>();
+    final List<GraphQLFieldDefinition> fieldDefStack = new ArrayList<>();
+    final List<String> nameStack = new ArrayList<>();
     GraphQLDirective directive;
     GraphQLArgument argument;
-
-    SchemaUtil schemaUtil = new SchemaUtil();
 
 
     public TraversalContext(GraphQLSchema graphQLSchema) {
@@ -87,7 +88,7 @@ public class TraversalContext implements DocumentVisitor {
 
 
     private void enterImpl(SelectionSet selectionSet) {
-        GraphQLUnmodifiedType rawType = new SchemaUtil().getUnmodifiedType(getOutputType());
+        GraphQLUnmodifiedType rawType = unwrapAll(getOutputType());
         GraphQLCompositeType parentType = null;
         if (rawType instanceof GraphQLCompositeType) {
             parentType = (GraphQLCompositeType) rawType;
@@ -96,6 +97,7 @@ public class TraversalContext implements DocumentVisitor {
     }
 
     private void enterImpl(Field field) {
+        enterName(field.getName());
         GraphQLCompositeType parentType = getParentType();
         GraphQLFieldDefinition fieldDefinition = null;
         if (parentType != null) {
@@ -117,7 +119,7 @@ public class TraversalContext implements DocumentVisitor {
         } else if (operationDefinition.getOperation() == OperationDefinition.Operation.SUBSCRIPTION) {
             addOutputType(schema.getSubscriptionType());
         } else {
-            throw new ShouldNotHappenException();
+            Assert.assertShouldNeverHappen();
         }
     }
 
@@ -125,21 +127,27 @@ public class TraversalContext implements DocumentVisitor {
         TypeName typeCondition = inlineFragment.getTypeCondition();
         GraphQLOutputType type;
         if (typeCondition != null) {
-            type = (GraphQLOutputType) schema.getType(typeCondition.getName());
+            GraphQLType typeConditionType = schema.getType(typeCondition.getName());
+            if (typeConditionType instanceof GraphQLOutputType) {
+                type = (GraphQLOutputType) typeConditionType;
+            } else {
+                type = null;
+            }
         } else {
-            type = (GraphQLOutputType) getParentType();
+            type = getParentType();
         }
         addOutputType(type);
     }
 
     private void enterImpl(FragmentDefinition fragmentDefinition) {
+        enterName(fragmentDefinition.getName());
         GraphQLType type = schema.getType(fragmentDefinition.getTypeCondition().getName());
-        addOutputType((GraphQLOutputType) type);
+        addOutputType(type instanceof GraphQLOutputType ? (GraphQLOutputType) type : null);
     }
 
     private void enterImpl(VariableDefinition variableDefinition) {
         GraphQLType type = TypeFromAST.getTypeFromAST(schema, variableDefinition.getType());
-        addInputType((GraphQLInputType) type);
+        addInputType(type instanceof GraphQLInputType ? (GraphQLInputType) type : null);
     }
 
     private void enterImpl(Argument argument) {
@@ -157,17 +165,18 @@ public class TraversalContext implements DocumentVisitor {
     private void enterImpl(ArrayValue arrayValue) {
         GraphQLNullableType nullableType = getNullableType(getInputType());
         GraphQLInputType inputType = null;
-        if (nullableType instanceof GraphQLList) {
-            inputType = (GraphQLInputType) ((GraphQLList) nullableType).getWrappedType();
+        if (isList(nullableType)) {
+            inputType = (GraphQLInputType) unwrapOne(nullableType);
         }
         addInputType(inputType);
     }
 
     private void enterImpl(ObjectField objectField) {
-        GraphQLUnmodifiedType objectType = schemaUtil.getUnmodifiedType(getInputType());
+        GraphQLUnmodifiedType objectType = unwrapAll(getInputType());
         GraphQLInputType inputType = null;
         if (objectType instanceof GraphQLInputObjectType) {
-            GraphQLInputObjectField inputField = ((GraphQLInputObjectType) objectType).getField(objectField.getName());
+            GraphQLInputObjectType inputObjectType = (GraphQLInputObjectType) objectType;
+            GraphQLInputObjectField inputField = schema.getFieldVisibility().getFieldDefinition(inputObjectType, objectField.getName());
             if (inputField != null)
                 inputType = inputField.getType();
         }
@@ -189,6 +198,7 @@ public class TraversalContext implements DocumentVisitor {
         } else if (node instanceof SelectionSet) {
             parentTypeStack.remove(parentTypeStack.size() - 1);
         } else if (node instanceof Field) {
+            leaveName(((Field) node).getName());
             fieldDefStack.remove(fieldDefStack.size() - 1);
             outputTypeStack.remove(outputTypeStack.size() - 1);
         } else if (node instanceof Directive) {
@@ -196,6 +206,7 @@ public class TraversalContext implements DocumentVisitor {
         } else if (node instanceof InlineFragment) {
             outputTypeStack.remove(outputTypeStack.size() - 1);
         } else if (node instanceof FragmentDefinition) {
+            leaveName(((FragmentDefinition) node).getName());
             outputTypeStack.remove(outputTypeStack.size() - 1);
         } else if (node instanceof VariableDefinition) {
             inputTypeStack.remove(inputTypeStack.size() - 1);
@@ -209,9 +220,24 @@ public class TraversalContext implements DocumentVisitor {
         }
     }
 
+    private void enterName(String name) {
+        if (!isEmpty(name)) {
+            nameStack.add(name);
+        }
+    }
+
+    private void leaveName(String name) {
+        if (!isEmpty(name)) {
+            nameStack.remove(nameStack.size() - 1);
+        }
+    }
+
+    private boolean isEmpty(String name) {
+        return name == null || name.isEmpty();
+    }
 
     private GraphQLNullableType getNullableType(GraphQLType type) {
-        return (GraphQLNullableType) (type instanceof GraphQLNonNull ? ((GraphQLNonNull) type).getWrappedType() : type);
+        return (GraphQLNullableType) (isNonNull(type) ? unwrapOne(type) : type);
     }
 
     /**
@@ -255,6 +281,13 @@ public class TraversalContext implements DocumentVisitor {
         return lastElement(fieldDefStack);
     }
 
+    public List<String> getQueryPath() {
+        if (nameStack.isEmpty()) {
+            return null;
+        }
+        return new ArrayList<>(nameStack);
+    }
+
     private void addFieldDef(GraphQLFieldDefinition fieldDefinition) {
         fieldDefStack.add(fieldDefinition);
     }
@@ -284,7 +317,7 @@ public class TraversalContext implements DocumentVisitor {
             return TypeNameMetaFieldDef;
         }
         if (parentType instanceof GraphQLFieldsContainer) {
-            return schema.getFieldVisibility().getFieldDefinition((GraphQLFieldsContainer) parentType,field.getName());
+            return schema.getFieldVisibility().getFieldDefinition((GraphQLFieldsContainer) parentType, field.getName());
         }
         return null;
     }

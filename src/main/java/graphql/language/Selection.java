@@ -1,5 +1,8 @@
 package graphql.language;
 
 
-public interface Selection extends Node {
+import graphql.PublicApi;
+
+@PublicApi
+public interface Selection<T extends Selection> extends Node<T> {
 }

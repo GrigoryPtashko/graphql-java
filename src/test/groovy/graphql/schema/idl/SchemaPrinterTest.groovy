@@ -1,10 +1,14 @@
 package graphql.schema.idl
 
+import graphql.GraphQL
 import graphql.Scalars
 import graphql.TestUtil
 import graphql.TypeResolutionEnvironment
+import graphql.introspection.IntrospectionQuery
+import graphql.introspection.IntrospectionResultToSchema
 import graphql.schema.Coercing
 import graphql.schema.GraphQLArgument
+import graphql.schema.GraphQLDirective
 import graphql.schema.GraphQLEnumType
 import graphql.schema.GraphQLFieldDefinition
 import graphql.schema.GraphQLInputObjectType
@@ -19,10 +23,13 @@ import graphql.schema.GraphQLUnionType
 import graphql.schema.TypeResolver
 import spock.lang.Specification
 
+import java.util.Collections
 import java.util.function.UnaryOperator
 
 import static graphql.Scalars.GraphQLString
+import static graphql.TestUtil.mockDirective
 import static graphql.TestUtil.mockScalar
+import static graphql.TestUtil.mockTypeRuntimeWiring
 import static graphql.schema.GraphQLArgument.newArgument
 import static graphql.schema.GraphQLFieldDefinition.newFieldDefinition
 import static graphql.schema.GraphQLInputObjectField.newInputObjectField
@@ -37,9 +44,10 @@ class SchemaPrinterTest extends Specification {
     GraphQLSchema starWarsSchema() {
         def wiring = newRuntimeWiring()
                 .type("Character", { type -> type.typeResolver(resolver) } as UnaryOperator<TypeRuntimeWiring.Builder>)
+                .type("Node", { type -> type.typeResolver(resolver) } as UnaryOperator<TypeRuntimeWiring.Builder>)
                 .scalar(ASTEROID)
                 .build()
-        GraphQLSchema schema = load("starWarsSchemaExtended.graphqls", wiring)
+        GraphQLSchema schema = TestUtil.schemaFromResource("starWarsSchemaExtended.graphqls", wiring)
         schema
     }
 
@@ -69,20 +77,6 @@ class SchemaPrinterTest extends Specification {
         }
     }
 
-    GraphQLSchema load(String fileName, RuntimeWiring wiring) {
-        def stream = getClass().getClassLoader().getResourceAsStream(fileName)
-
-        def typeRegistry = new SchemaParser().parse(new InputStreamReader(stream))
-        def schema = new SchemaGenerator().makeExecutableSchema(typeRegistry, wiring)
-        schema
-    }
-
-    GraphQLSchema generate(String spec) {
-        def typeRegistry = new SchemaParser().parse(spec)
-        def schema = new SchemaGenerator().makeExecutableSchema(typeRegistry, newRuntimeWiring().build())
-        schema
-    }
-
     static class MyGraphQLObjectType extends GraphQLObjectType {
 
         MyGraphQLObjectType(String name, String description, List<GraphQLFieldDefinition> fieldDefinitions) {
@@ -93,15 +87,11 @@ class SchemaPrinterTest extends Specification {
     def "typeString"() {
 
         GraphQLType type1 = nonNull(list(nonNull(list(nonNull(Scalars.GraphQLInt)))))
-        GraphQLType type2 = nonNull(nonNull(list(nonNull(Scalars.GraphQLInt))))
 
         def typeStr1 = new SchemaPrinter().typeString(type1)
-        def typeStr2 = new SchemaPrinter().typeString(type2)
 
         expect:
         typeStr1 == "[[Int!]!]!"
-        typeStr2 == "[Int!]!!"
-
     }
 
     def "argsString"() {
@@ -109,6 +99,17 @@ class SchemaPrinterTest extends Specification {
         def argument2 = new GraphQLArgument("arg2", null, GraphQLString, null)
         def argument3 = new GraphQLArgument("arg3", null, GraphQLString, "default")
         def argStr = new SchemaPrinter().argsString([argument1, argument2, argument3])
+
+        expect:
+
+        argStr == "(arg1: [Int!] = 10, arg2: String, arg3: String = \"default\")"
+    }
+
+    def "argsString_sorts"() {
+        def argument1 = new GraphQLArgument("arg1", null, list(nonNull(Scalars.GraphQLInt)), 10)
+        def argument2 = new GraphQLArgument("arg2", null, GraphQLString, null)
+        def argument3 = new GraphQLArgument("arg3", null, GraphQLString, "default")
+        def argStr = new SchemaPrinter().argsString([argument2, argument1, argument3])
 
         expect:
 
@@ -123,10 +124,10 @@ class SchemaPrinterTest extends Specification {
         expect:
         result ==
                 """interface Character {
+  appearsIn: [Episode]!
+  friends: [Character]
   id: ID!
   name: String!
-  friends: [Character]
-  appearsIn: [Episode]!
 }
 
 """
@@ -159,7 +160,7 @@ class SchemaPrinterTest extends Specification {
     }
 
     def "default root names are handled"() {
-        def schema = generate("""
+        def schema = TestUtil.schema("""
             type Query {
                 field: String
             }
@@ -191,8 +192,50 @@ type Subscription {
 """
     }
 
+    def "schema prints if forced with default root names"() {
+        def schema = TestUtil.schema("""
+            type Query {
+                field: String
+            }
+
+            type Mutation {
+                field: String
+            }
+
+            type Subscription {
+                field: String
+            }
+        """)
+
+        def options = defaultOptions()
+                .includeSchemaDefintion(true)
+
+        def result = new SchemaPrinter(options).print(schema)
+
+        expect:
+        result == """schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type Mutation {
+  field: String
+}
+
+type Query {
+  field: String
+}
+
+type Subscription {
+  field: String
+}
+"""
+    }
+
+
     def "schema is printed if default root names are not ALL present"() {
-        def schema = generate("""
+        def schema = TestUtil.schema("""
             type Query {
                 field: String
             }
@@ -559,4 +602,279 @@ type Query {
         ["scalar BigDecimal", "scalar CustomScalar"] | defaultOptions().includeScalarTypes(true).includeExtendedScalarTypes(true)
         ["scalar CustomScalar"]                      | defaultOptions().includeScalarTypes(true).includeExtendedScalarTypes(false)
     }
+
+
+    def "schema will be sorted"() {
+        def schema = TestUtil.schema("""
+            type Query {
+                fieldB(argZ : String, argY : Int, argX : String) : String
+                fieldA(argZ : String, argY : Int, argX : String) : String
+                fieldC(argZ : String, argY : Int, argX : String) : String
+                fieldE : TypeE
+                fieldD : TypeD
+            }
+            
+            type TypeE {
+                fieldA : String
+                fieldC : String
+                fieldB : String
+            }
+
+            type TypeD {
+                fieldB : String
+                fieldA : String
+                fieldC : String
+            }
+        """)
+
+
+        def result = new SchemaPrinter().print(schema)
+
+        expect:
+        result == """type Query {
+  fieldA(argX: String, argY: Int, argZ: String): String
+  fieldB(argX: String, argY: Int, argZ: String): String
+  fieldC(argX: String, argY: Int, argZ: String): String
+  fieldD: TypeD
+  fieldE: TypeE
 }
+
+type TypeD {
+  fieldA: String
+  fieldB: String
+  fieldC: String
+}
+
+type TypeE {
+  fieldA: String
+  fieldB: String
+  fieldC: String
+}
+"""
+    }
+
+
+    def "print introspection result back to IDL"() {
+        GraphQLSchema schema = starWarsSchema()
+        def graphQL = GraphQL.newGraphQL(schema).build()
+
+        def executionResult = graphQL.execute(IntrospectionQuery.INTROSPECTION_QUERY)
+
+        def schemaDefinition = new IntrospectionResultToSchema().createSchemaDefinition(executionResult)
+
+        def result = new SchemaPrinter().print(schemaDefinition)
+
+        expect:
+        result ==
+                """interface Character {
+  appearsIn: [Episode]!
+  friends: [Character]
+  id: ID!
+  name: String!
+}
+
+interface Node {
+  id: ID!
+}
+
+type Droid implements Character & Node {
+  appearsIn: [Episode]!
+  friends: [Character]
+  id: ID!
+  madeOn: Planet
+  name: String!
+  primaryFunction: String
+}
+
+type Human implements Character & Node {
+  appearsIn: [Episode]!
+  friends: [Character]
+  homePlanet: String
+  id: ID!
+  name: String!
+}
+
+type Planet {
+  hitBy: Asteroid
+  name: String
+}
+
+type Query {
+  droid(id: ID!): Droid
+  hero(episode: Episode): Character
+  node(id: ID!): Node
+}
+
+type Starship implements Node {
+  id: ID!
+  name: String
+}
+
+enum Episode {
+  EMPIRE
+  JEDI
+  NEWHOPE
+}
+"""
+    }
+
+
+    def "AST doc string entries are printed if present"() {
+        def schema = TestUtil.schema('''
+            # comments up here
+            """docstring"""
+            # and comments as well down here
+            type Query {
+                "field single desc"
+                field: String
+            }
+        ''')
+
+
+        def result = new SchemaPrinter().print(schema)
+
+        expect:
+        result == '''"""docstring"""
+type Query {
+  "field single desc"
+  field: String
+}
+'''
+    }
+
+
+    def "directives will be printed"() {
+        given:
+        def idl = """
+            
+            interface SomeInterface @interfaceTypeDirective {
+                fieldA : String @interfaceFieldDirective
+            }
+            
+            union SomeUnion @unionTypeDirective = Single | SomeImplementingType
+            
+            type Query @query1 @query2(arg1:"x") {
+                fieldA : String @fieldDirective1 @fieldDirective2(argStr:"str", argInt : 1, argFloat : 1.0, argBool : false)
+                fieldB(input : SomeInput) : SomeScalar
+                fieldC : SomeEnum
+                fieldD : SomeInterface
+                fieldE : SomeUnion
+            }
+            
+            type Single @single {
+                fieldA : String @singleField
+            }
+            
+            type SomeImplementingType implements SomeInterface @interfaceImplementingTypeDirective {
+                fieldA : String @interfaceImplementingFieldDirective
+            }
+            
+            enum SomeEnum @enumTypeDirective {
+                SOME_ENUM_VALUE @enumValueDirective
+            }
+            
+            scalar SomeScalar @scalarDirective
+            
+            input SomeInput @inputTypeDirective {
+                fieldA : String @inputFieldDirective
+            }
+        """
+        def registry = new SchemaParser().parse(idl)
+        def runtimeWiring = newRuntimeWiring()
+            .scalar(mockScalar(registry.scalars().get("SomeScalar")))
+            .type(mockTypeRuntimeWiring("SomeInterface", true))
+            .type(mockTypeRuntimeWiring("SomeUnion", true))
+            .build()
+        def options = SchemaGenerator.Options.defaultOptions().enforceSchemaDirectives(false)
+        def schema = new SchemaGenerator().makeExecutableSchema(options, registry, runtimeWiring)
+
+        when:
+        def result = new SchemaPrinter(defaultOptions().includeScalarTypes(true)).print(schema)
+
+        then:
+        // args and directives are sorted like the rest of the schema printer
+        result == '''interface SomeInterface @interfaceTypeDirective {
+  fieldA: String @interfaceFieldDirective
+}
+
+union SomeUnion @unionTypeDirective = Single | SomeImplementingType
+
+type Query @query1 @query2(arg1 : "x") {
+  fieldA: String @fieldDirective1 @fieldDirective2(argBool : false, argFloat : 1.0, argInt : 1, argStr : "str")
+  fieldB(input: SomeInput): SomeScalar
+  fieldC: SomeEnum
+  fieldD: SomeInterface
+  fieldE: SomeUnion
+}
+
+type Single @single {
+  fieldA: String @singleField
+}
+
+type SomeImplementingType implements SomeInterface @interfaceImplementingTypeDirective {
+  fieldA: String @interfaceImplementingFieldDirective
+}
+
+enum SomeEnum @enumTypeDirective {
+  SOME_ENUM_VALUE @enumValueDirective
+}
+
+scalar SomeScalar @scalarDirective
+
+input SomeInput @inputTypeDirective {
+  fieldA: String @inputFieldDirective
+}
+'''
+    }
+
+
+    def "directives with default values are printed correctly"() {
+        given:
+        def idl = """
+
+            type Field {
+              active : Enum
+              deprecated : Enum @deprecated
+              deprecatedWithReason : Enum @deprecated(reason : "Custom reason 1")
+            }
+            
+            type Query {
+                field : Field
+            }
+            
+            enum Enum {
+              ACTIVE
+              DEPRECATED @deprecated
+              DEPRECATED_WITH_REASON @deprecated(reason : "Custom reason 2")
+            }
+        """
+        def registry = new SchemaParser().parse(idl)
+        def runtimeWiring = newRuntimeWiring().build()
+        def options = SchemaGenerator.Options.defaultOptions().enforceSchemaDirectives(false)
+        def schema = new SchemaGenerator().makeExecutableSchema(options, registry, runtimeWiring)
+
+        when:
+        def result = new SchemaPrinter(defaultOptions().includeScalarTypes(true)).print(schema)
+
+        then:
+        // args and directives are sorted like the rest of the schema printer
+        result == '''type Field {
+  active: Enum
+  deprecated: Enum @deprecated(reason : "No longer supported")
+  deprecatedWithReason: Enum @deprecated(reason : "Custom reason 1")
+}
+
+type Query {
+  field: Field
+}
+
+enum Enum {
+  ACTIVE
+  DEPRECATED @deprecated(reason : "No longer supported")
+  DEPRECATED_WITH_REASON @deprecated(reason : "Custom reason 2")
+}
+'''
+    }
+
+}
+

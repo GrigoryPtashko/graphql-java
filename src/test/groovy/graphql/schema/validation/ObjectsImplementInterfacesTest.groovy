@@ -2,8 +2,6 @@ package graphql.schema.validation
 
 import graphql.TypeResolutionEnvironment
 import graphql.schema.GraphQLInterfaceType
-import graphql.schema.GraphQLList
-import graphql.schema.GraphQLNonNull
 import graphql.schema.GraphQLObjectType
 import graphql.schema.TypeResolver
 import spock.lang.Specification
@@ -169,19 +167,19 @@ class ObjectsImplementInterfacesTest extends Specification {
 
         GraphQLInterfaceType interfaceType = newInterface()
                 .name("TestInterface")
-                .field(newFieldDefinition().name("field").type(new GraphQLList(person)).build())
+                .field(newFieldDefinition().name("field").type(list(person)).build())
                 .typeResolver({})
                 .build()
 
         GraphQLObjectType goodImpl = newObject()
                 .name("GoodImpl")
-                .field(newFieldDefinition().name("field").type(new GraphQLList(actor)).build())
+                .field(newFieldDefinition().name("field").type(list(actor)).build())
                 .withInterface(interfaceType)
                 .build()
 
         GraphQLObjectType badImpl = newObject()
                 .name("BadImpl")
-                .field(newFieldDefinition().name("field").type(new GraphQLList(prop)).build())
+                .field(newFieldDefinition().name("field").type(list(prop)).build())
                 .withInterface(interfaceType)
                 .build()
 
@@ -261,13 +259,13 @@ class ObjectsImplementInterfacesTest extends Specification {
 
         GraphQLObjectType goodImpl = newObject()
                 .name("GoodImpl")
-                .field(newFieldDefinition().name("field").type(new GraphQLNonNull(GraphQLString)).build())
+                .field(newFieldDefinition().name("field").type(nonNull(GraphQLString)).build())
                 .withInterface(interfaceType)
                 .build()
 
         GraphQLObjectType badImpl = newObject()
                 .name("BadImpl")
-                .field(newFieldDefinition().name("field").type(new GraphQLNonNull(GraphQLInt)).build())
+                .field(newFieldDefinition().name("field").type(nonNull(GraphQLInt)).build())
                 .withInterface(interfaceType)
                 .build()
 
@@ -281,6 +279,42 @@ class ObjectsImplementInterfacesTest extends Specification {
         then:
         goodErrorCollector.getErrors().isEmpty()
         !badErrorCollector.getErrors().isEmpty()
+    }
+
+
+    def "field is a non null object"() {
+        given:
+        GraphQLInterfaceType memberInterface = newInterface()
+                .name("TestMemberInterface")
+                .field(newFieldDefinition().name("field").type(GraphQLString).build())
+                .typeResolver({})
+                .build()
+
+        GraphQLObjectType memberInterfaceImpl = newObject()
+                .name("TestMemberInterfaceImpl")
+                .field(newFieldDefinition().name("field").type(GraphQLString).build())
+                .withInterface(memberInterface)
+                .build()
+
+        GraphQLInterfaceType testInterface = newInterface()
+                .name("TestInterface")
+                .field(newFieldDefinition().name("field").type(nonNull(memberInterface)).build())
+                .typeResolver({})
+                .build()
+
+        GraphQLObjectType testInterfaceImpl = newObject()
+                .name("TestInterfaceImpl")
+                .field(newFieldDefinition().name("field").type(nonNull(memberInterfaceImpl)).build())
+                .withInterface(testInterface)
+                .build()
+
+        SchemaValidationErrorCollector goodErrorCollector = new SchemaValidationErrorCollector()
+
+        when:
+        new ObjectsImplementInterfaces().check(testInterfaceImpl, goodErrorCollector)
+
+        then:
+        goodErrorCollector.getErrors().isEmpty()
     }
 
 }

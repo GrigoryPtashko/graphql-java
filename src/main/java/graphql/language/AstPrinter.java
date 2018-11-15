@@ -1,6 +1,7 @@
 package graphql.language;
 
 import graphql.AssertException;
+import graphql.PublicApi;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -11,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static graphql.Assert.assertTrue;
 import static java.lang.String.valueOf;
 import static java.util.stream.Collectors.joining;
 
@@ -18,6 +20,7 @@ import static java.util.stream.Collectors.joining;
  * This can take graphql language AST and print it out as a string
  */
 @SuppressWarnings("UnnecessaryLocalVariable")
+@PublicApi
 public class AstPrinter {
 
     private static final Map<Class<? extends Node>, NodePrinter<? extends Node>> printers = new LinkedHashMap<>();
@@ -32,6 +35,7 @@ public class AstPrinter {
         printers.put(DirectiveLocation.class, directiveLocation());
         printers.put(Document.class, document());
         printers.put(EnumTypeDefinition.class, enumTypeDefinition());
+        printers.put(EnumTypeExtensionDefinition.class, enumTypeExtensionDefinition());
         printers.put(EnumValue.class, enumValue());
         printers.put(EnumValueDefinition.class, enumValueDefinition());
         printers.put(Field.class, field());
@@ -41,23 +45,27 @@ public class AstPrinter {
         printers.put(FragmentSpread.class, fragmentSpread());
         printers.put(InlineFragment.class, inlineFragment());
         printers.put(InputObjectTypeDefinition.class, inputObjectTypeDefinition());
+        printers.put(InputObjectTypeExtensionDefinition.class, inputObjectTypeExtensionDefinition());
         printers.put(InputValueDefinition.class, inputValueDefinition());
         printers.put(InterfaceTypeDefinition.class, interfaceTypeDefinition());
+        printers.put(InterfaceTypeExtensionDefinition.class, interfaceTypeExtensionDefinition());
         printers.put(IntValue.class, value());
         printers.put(ListType.class, type());
         printers.put(NonNullType.class, type());
         printers.put(ObjectField.class, objectField());
         printers.put(ObjectTypeDefinition.class, objectTypeDefinition());
+        printers.put(ObjectTypeExtensionDefinition.class, objectTypeExtensionDefinition());
         printers.put(ObjectValue.class, value());
         printers.put(OperationDefinition.class, operationDefinition());
         printers.put(OperationTypeDefinition.class, operationTypeDefinition());
         printers.put(ScalarTypeDefinition.class, scalarTypeDefinition());
+        printers.put(ScalarTypeExtensionDefinition.class, scalarTypeExtensionDefinition());
         printers.put(SchemaDefinition.class, schemaDefinition());
         printers.put(SelectionSet.class, selectionSet());
         printers.put(StringValue.class, value());
-        printers.put(TypeExtensionDefinition.class, typeExtensionDefinition());
         printers.put(TypeName.class, type());
         printers.put(UnionTypeDefinition.class, unionTypeDefinition());
+        printers.put(UnionTypeExtensionDefinition.class, unionTypeExtensionDefinition());
         printers.put(VariableDefinition.class, variableDefinition());
         printers.put(VariableReference.class, variableReference());
     }
@@ -163,7 +171,7 @@ public class AstPrinter {
     }
 
     private static boolean hasComments(List<? extends Node> nodes) {
-        return nodes.stream().filter(it -> it.getComments().size() > 0).count() > 0;
+        return nodes.stream().anyMatch(it -> it.getComments().size() > 0);
     }
 
     private static NodePrinter<FragmentDefinition> fragmentDefinition() {
@@ -207,6 +215,7 @@ public class AstPrinter {
         return (out, node) -> {
             out.printf("%s", comments(node));
             out.printf("%s", spaced(
+                    "input",
                     node.getName(),
                     directives(node.getDirectives()),
                     block(node.getInputValueDefinitions())
@@ -274,7 +283,7 @@ public class AstPrinter {
             out.printf("%s", spaced(
                     "type",
                     node.getName(),
-                    wrap("implements ", join(node.getImplements(), ", "), ""),
+                    wrap("implements ", join(node.getImplements(), " & "), ""),
                     directives(node.getDirectives()),
                     block(node.getFieldDefinitions())
             ));
@@ -291,7 +300,10 @@ public class AstPrinter {
     private static NodePrinter<ScalarTypeDefinition> scalarTypeDefinition() {
         return (out, node) -> {
             out.printf("%s", comments(node));
-            out.printf("%s", spaced(node.getName(), directives(node.getDirectives())));
+            out.printf("%s", spaced(
+                    "scalar",
+                    node.getName(),
+                    directives(node.getDirectives())));
         };
     }
 
@@ -326,12 +338,28 @@ public class AstPrinter {
         }
     }
 
-    @SuppressWarnings("UnnecessaryLocalVariable")
-    private static NodePrinter<TypeExtensionDefinition> typeExtensionDefinition() {
-        return (out, node) -> {
-            ObjectTypeDefinition asObjectType = node;
-            out.printf("extend %s", node(asObjectType));
-        };
+    private static NodePrinter<ObjectTypeExtensionDefinition> objectTypeExtensionDefinition() {
+        return (out, node) -> out.printf("extend %s", node(node, ObjectTypeDefinition.class));
+    }
+
+    private static NodePrinter<EnumTypeExtensionDefinition> enumTypeExtensionDefinition() {
+        return (out, node) -> out.printf("extend %s", node(node, EnumTypeDefinition.class));
+    }
+
+    private static NodePrinter<InterfaceTypeDefinition> interfaceTypeExtensionDefinition() {
+        return (out, node) -> out.printf("extend %s", node(node, InterfaceTypeDefinition.class));
+    }
+
+    private static NodePrinter<UnionTypeExtensionDefinition> unionTypeExtensionDefinition() {
+        return (out, node) -> out.printf("extend %s", node(node, UnionTypeDefinition.class));
+    }
+
+    private static NodePrinter<ScalarTypeExtensionDefinition> scalarTypeExtensionDefinition() {
+        return (out, node) -> out.printf("extend %s", node(node, ScalarTypeDefinition.class));
+    }
+
+    private static NodePrinter<InputObjectTypeExtensionDefinition> inputObjectTypeExtensionDefinition() {
+        return (out, node) -> out.printf("extend %s", node(node, InputObjectTypeDefinition.class));
     }
 
     private static NodePrinter<UnionTypeDefinition> unionTypeDefinition() {
@@ -359,20 +387,31 @@ public class AstPrinter {
     }
 
     static private String node(Node node) {
+        return node(node, null);
+    }
+
+    static private String node(Node node, Class startClass) {
+        if (startClass != null) {
+            assertTrue(startClass.isInstance(node), "The starting class must be in the inherit tree");
+        }
         StringWriter sw = new StringWriter();
         PrintWriter out = new PrintWriter(sw);
-        NodePrinter<Node> printer = _findPrinter(node);
+        NodePrinter<Node> printer = _findPrinter(node, startClass);
         printer.print(out, node);
         return sw.toString();
     }
 
     @SuppressWarnings("unchecked")
     static private <T extends Node> NodePrinter<T> _findPrinter(Node node) {
+        return _findPrinter(node, null);
+    }
+
+    static private <T extends Node> NodePrinter<T> _findPrinter(Node node, Class startClass) {
         if (node == null) {
             return (out, type) -> {
             };
         }
-        Class clazz = node.getClass();
+        Class clazz = startClass != null ? startClass : node.getClass();
         while (clazz != Object.class) {
             NodePrinter nodePrinter = printers.get(clazz);
             if (nodePrinter != null) {
@@ -422,7 +461,7 @@ public class AstPrinter {
         return "";
     }
 
-    static private String comments(Node node) {
+    static private String comments(Node<?> node) {
         List<Comment> comments = nvl(node.getComments());
         if (isEmpty(comments)) {
             return "";
@@ -461,6 +500,9 @@ public class AstPrinter {
 
     static String wrap(String start, String maybeString, String end) {
         if (isEmpty(maybeString)) {
+            if (start.equals("\"") && end.equals("\"")) {
+                return "\"\"";
+            }
             return "";
         }
         return start + maybeString + (!isEmpty(end) ? end : "");
@@ -502,6 +544,21 @@ public class AstPrinter {
         StringWriter sw = new StringWriter();
         printAst(sw, node);
         return sw.toString();
+    }
+
+    /**
+     * This will print the Ast node in graphql language format.
+     * The format is derived from the pretty print version by replacing
+     * all newlines and indentations through single space.
+     *
+     * @param node the AST node to print
+     *
+     * @return the printed node in graphql language format
+     */
+    public static String printAstCompact(Node node) {
+        StringWriter sw = new StringWriter();
+        printAst(sw, node);
+        return sw.toString().replaceAll("\\s+", " ").trim();
     }
 
     /**

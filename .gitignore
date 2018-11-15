@@ -9,3 +9,9 @@ _site
 generated-src/
 .svn
 out
+docs/_build/
+/bin/
+\.classpath
+\.project
+\.settings/
+/.nb-gradle/

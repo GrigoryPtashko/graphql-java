@@ -14,6 +14,7 @@ import graphql.schema.GraphQLOutputType;
 import graphql.schema.GraphQLSchema;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Internal
@@ -22,7 +23,7 @@ public class ValidationContext {
     private final GraphQLSchema schema;
     private final Document document;
 
-    private TraversalContext traversalContext;
+    private final TraversalContext traversalContext;
     private final Map<String, FragmentDefinition> fragmentDefinitionMap = new LinkedHashMap<>();
 
 
@@ -82,4 +83,12 @@ public class ValidationContext {
     }
 
 
+    public List<String> getQueryPath() {
+        return traversalContext.getQueryPath();
+    }
+
+    @Override
+    public String toString() {
+        return "ValidationContext{" + getQueryPath() + "}";
+    }
 }

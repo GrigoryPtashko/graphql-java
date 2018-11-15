@@ -1,11 +1,17 @@
 package graphql.schema.validation
 
-import graphql.schema.*
+import graphql.schema.GraphQLArgument
+import graphql.schema.GraphQLFieldDefinition
+import graphql.schema.GraphQLInputObjectField
+import graphql.schema.GraphQLInputObjectType
+import graphql.schema.GraphQLTypeReference
 import spock.lang.Specification
 
 import static graphql.Scalars.GraphQLBoolean
 import static graphql.schema.GraphQLFieldDefinition.newFieldDefinition
 import static graphql.schema.GraphQLInputObjectType.newInputObject
+import static graphql.schema.GraphQLNonNull.nonNull
+import static graphql.schema.GraphQLTypeReference.typeRef
 
 class NoUnbrokenInputCyclesTest extends Specification {
 
@@ -17,7 +23,7 @@ class NoUnbrokenInputCyclesTest extends Specification {
                 .name("Person")
                 .field(GraphQLInputObjectField.newInputObjectField()
                 .name("friend")
-                .type(new GraphQLTypeReference("Person"))
+                .type(typeRef("Person"))
                 .build())
                 .build()
 
@@ -29,7 +35,7 @@ class NoUnbrokenInputCyclesTest extends Specification {
                 .type(PersonInputType))
                 .build()
 
-        PersonInputType.getFieldDefinition("friend").type = new GraphQLNonNull(PersonInputType)
+        PersonInputType.getFieldDefinition("friend").type = nonNull(PersonInputType)
         when:
         new NoUnbrokenInputCycles().check(field, errorCollector)
         then:

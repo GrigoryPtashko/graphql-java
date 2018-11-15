@@ -2,26 +2,17 @@ package graphql.schema.idl
 
 import graphql.GraphQL
 import graphql.StarWarsData
-import graphql.schema.GraphQLSchema
+import graphql.TestUtil
 import graphql.schema.StaticDataFetcher
 import spock.lang.Specification
 
 import static TypeRuntimeWiring.newTypeWiring
 
 /**
-  This reruns some of the tests in graphql.StarWarsQueryTest but with the schema being
-  built by via the schema generator
+ This reruns some of the tests in graphql.StarWarsQueryTest but with the schema being
+ built by via the schema generator
  */
 class ExecutableStarWarsSchemaTest extends Specification {
-
-    GraphQLSchema load(String fileName, RuntimeWiring wiring) {
-        def stream = getClass().getClassLoader().getResourceAsStream(fileName)
-
-        def typeRegistry = new SchemaParser().parse(new InputStreamReader(stream))
-        def schema = new SchemaGenerator().makeExecutableSchema(typeRegistry, wiring)
-        schema
-    }
-
 
     RuntimeWiring wiring = RuntimeWiring.newRuntimeWiring()
             .type(newTypeWiring("QueryType")
@@ -44,7 +35,7 @@ class ExecutableStarWarsSchemaTest extends Specification {
     )
             .build()
 
-    def executableStarWarsSchema = load("starWarsSchema.graphqls", wiring)
+    def executableStarWarsSchema = TestUtil.schemaFromResource("starWarsSchema.graphqls", wiring)
 
 
     def 'Correctly identifies R2-D2 as the hero of the Star Wars Saga'() {

@@ -2,16 +2,21 @@ package graphql.schema;
 
 
 import graphql.Internal;
+import graphql.execution.ExecutionContext;
 import graphql.execution.ExecutionId;
-import graphql.execution.ExecutionPath;
-import graphql.execution.ExecutionTypeInfo;
+import graphql.execution.ExecutionStepInfo;
 import graphql.language.Field;
 import graphql.language.FragmentDefinition;
+import org.dataloader.DataLoader;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@SuppressWarnings("unchecked")
+import static graphql.Assert.assertNotNull;
+
+@SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
 @Internal
 public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     private final Object source;
@@ -26,11 +31,26 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     private final Map<String, FragmentDefinition> fragmentsByName;
     private final ExecutionId executionId;
     private final DataFetchingFieldSelectionSet selectionSet;
-    private final ExecutionTypeInfo fieldTypeInfo;
+    private final ExecutionStepInfo executionStepInfo;
+    private ExecutionContext executionContext;
 
-    public DataFetchingEnvironmentImpl(Object source, Map<String, Object> arguments, Object context, Object root, GraphQLFieldDefinition fieldDefinition, List<Field> fields, GraphQLOutputType fieldType, GraphQLType parentType, GraphQLSchema graphQLSchema, Map<String, FragmentDefinition> fragmentsByName, ExecutionId executionId, DataFetchingFieldSelectionSet selectionSet, ExecutionTypeInfo fieldTypeInfo) {
+    public DataFetchingEnvironmentImpl(Object source,
+                                       Map<String, Object> arguments,
+                                       Object context,
+                                       Object root,
+                                       GraphQLFieldDefinition fieldDefinition,
+                                       List<Field> fields,
+                                       GraphQLOutputType fieldType,
+                                       GraphQLType parentType,
+                                       GraphQLSchema graphQLSchema,
+                                       Map<String, FragmentDefinition> fragmentsByName,
+                                       ExecutionId executionId,
+                                       DataFetchingFieldSelectionSet selectionSet,
+                                       ExecutionStepInfo executionStepInfo,
+                                       ExecutionContext executionContext) {
         this.source = source;
-        this.arguments = arguments;
+        this.arguments = arguments == null ? Collections.emptyMap() : arguments;
+        this.fragmentsByName = fragmentsByName == null ? Collections.emptyMap() : fragmentsByName;
         this.context = context;
         this.root = root;
         this.fieldDefinition = fieldDefinition;
@@ -38,10 +58,10 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
         this.fieldType = fieldType;
         this.parentType = parentType;
         this.graphQLSchema = graphQLSchema;
-        this.fragmentsByName = fragmentsByName;
         this.executionId = executionId;
         this.selectionSet = selectionSet;
-        this.fieldTypeInfo = fieldTypeInfo;
+        this.executionStepInfo = executionStepInfo;
+        this.executionContext = assertNotNull(executionContext);
     }
 
     @Override
@@ -51,7 +71,7 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
 
     @Override
     public Map<String, Object> getArguments() {
-        return arguments;
+        return new HashMap<>(arguments);
     }
 
     @Override
@@ -85,6 +105,11 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     }
 
     @Override
+    public Field getField() {
+        return fields.get(0);
+    }
+
+    @Override
     public GraphQLOutputType getFieldType() {
         return fieldType;
     }
@@ -101,7 +126,7 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
 
     @Override
     public Map<String, FragmentDefinition> getFragmentsByName() {
-        return fragmentsByName;
+        return new HashMap<>(fragmentsByName);
     }
 
     @Override
@@ -115,14 +140,24 @@ public class DataFetchingEnvironmentImpl implements DataFetchingEnvironment {
     }
 
     @Override
-    public ExecutionTypeInfo getFieldTypeInfo() {
-        return fieldTypeInfo;
+    public ExecutionStepInfo getExecutionStepInfo() {
+        return executionStepInfo;
+    }
+
+    @Override
+    public ExecutionContext getExecutionContext() {
+        return executionContext;
+    }
+
+    @Override
+    public <K, V> DataLoader<K, V> getDataLoader(String dataLoaderName) {
+        return executionContext.getDataLoaderRegistry().getDataLoader(dataLoaderName);
     }
 
     @Override
     public String toString() {
         return "DataFetchingEnvironmentImpl{" +
-                "fieldTypeInfo=" + fieldTypeInfo +
+                "executionStepInfo=" + executionStepInfo +
                 '}';
     }
 }

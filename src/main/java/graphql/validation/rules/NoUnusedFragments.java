@@ -5,7 +5,10 @@ import graphql.language.Document;
 import graphql.language.FragmentDefinition;
 import graphql.language.FragmentSpread;
 import graphql.language.OperationDefinition;
-import graphql.validation.*;
+import graphql.validation.AbstractRule;
+import graphql.validation.ValidationContext;
+import graphql.validation.ValidationErrorCollector;
+import graphql.validation.ValidationErrorType;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,7 +21,7 @@ public class NoUnusedFragments extends AbstractRule {
     private final List<FragmentDefinition> allDeclaredFragments = new ArrayList<>();
 
     private List<String> usedFragments = new ArrayList<>();
-    private Map<String, List<String>> spreadsInDefinition = new LinkedHashMap<>();
+    private final Map<String, List<String>> spreadsInDefinition = new LinkedHashMap<>();
     private final List<List<String>> fragmentsUsedDirectlyInOperation = new ArrayList<>();
 
     public NoUnusedFragments(ValidationContext validationContext, ValidationErrorCollector validationErrorCollector) {
@@ -57,7 +60,7 @@ public class NoUnusedFragments extends AbstractRule {
         for (FragmentDefinition fragmentDefinition : allDeclaredFragments) {
             if (!allUsedFragments.contains(fragmentDefinition.getName())) {
                 String message = String.format("Unused fragment %s", fragmentDefinition.getName());
-                addError(new ValidationError(ValidationErrorType.UnusedFragment, fragmentDefinition.getSourceLocation(), message));
+                addError(ValidationErrorType.UnusedFragment, fragmentDefinition.getSourceLocation(), message);
             }
         }
 

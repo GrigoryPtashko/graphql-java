@@ -4,7 +4,10 @@ import graphql.language.Argument;
 import graphql.schema.GraphQLArgument;
 import graphql.schema.GraphQLDirective;
 import graphql.schema.GraphQLFieldDefinition;
-import graphql.validation.*;
+import graphql.validation.AbstractRule;
+import graphql.validation.ValidationContext;
+import graphql.validation.ValidationErrorCollector;
+import graphql.validation.ValidationErrorType;
 
 
 public class KnownArgumentNames extends AbstractRule {
@@ -21,7 +24,7 @@ public class KnownArgumentNames extends AbstractRule {
             GraphQLArgument directiveArgument = directiveDef.getArgument(argument.getName());
             if (directiveArgument == null) {
                 String message = String.format("Unknown directive argument %s", argument.getName());
-                addError(new ValidationError(ValidationErrorType.UnknownDirective, argument.getSourceLocation(), message));
+                addError(ValidationErrorType.UnknownDirective, argument.getSourceLocation(), message);
             }
 
             return;
@@ -32,7 +35,7 @@ public class KnownArgumentNames extends AbstractRule {
         GraphQLArgument fieldArgument = fieldDef.getArgument(argument.getName());
         if (fieldArgument == null) {
             String message = String.format("Unknown field argument %s", argument.getName());
-            addError(new ValidationError(ValidationErrorType.UnknownArgument, argument.getSourceLocation(), message));
+            addError(ValidationErrorType.UnknownArgument, argument.getSourceLocation(), message);
         }
     }
 }

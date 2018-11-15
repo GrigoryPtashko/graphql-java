@@ -1,5 +1,6 @@
 package graphql.execution;
 
+import graphql.Assert;
 import graphql.AssertException;
 import graphql.PublicApi;
 
@@ -10,6 +11,7 @@ import java.util.StringTokenizer;
 
 import static graphql.Assert.assertNotNull;
 import static graphql.Assert.assertTrue;
+import static java.lang.String.format;
 
 
 /**
@@ -18,7 +20,7 @@ import static graphql.Assert.assertTrue;
  */
 @PublicApi
 public class ExecutionPath {
-    private static ExecutionPath ROOT_PATH = new ExecutionPath();
+    private static final ExecutionPath ROOT_PATH = new ExecutionPath();
 
     /**
      * All paths start from here
@@ -45,6 +47,39 @@ public class ExecutionPath {
         pathList = toListImpl();
     }
 
+    public int getLevel() {
+        int counter = 0;
+        ExecutionPath currentPath = this;
+        while (currentPath != null) {
+            if (currentPath.segment instanceof StringPathSegment) {
+                counter++;
+            }
+            currentPath = currentPath.parent;
+        }
+        return counter;
+    }
+
+    public ExecutionPath getPathWithoutListEnd() {
+        if (ROOT_PATH.equals(this)) {
+            return ROOT_PATH;
+        }
+        if (segment instanceof StringPathSegment) {
+            return this;
+        }
+        return parent;
+    }
+
+    public String getSegmentName() {
+        if (segment instanceof StringPathSegment) {
+            return ((StringPathSegment) segment).getValue();
+        } else {
+            if (parent == null) {
+                return null;
+            }
+            return ((StringPathSegment) parent.segment).getValue();
+        }
+    }
+
     /**
      * Parses an execution path from the provided path string in the format /segment1/segment2[index]/segmentN
      *
@@ -60,15 +95,15 @@ public class ExecutionPath {
         while (st.hasMoreTokens()) {
             String token = st.nextToken();
             if ("/".equals(token)) {
-                assertTrue(st.hasMoreTokens(), mkErrMsg(pathString));
+                assertTrue(st.hasMoreTokens(), mkErrMsg(), pathString);
                 path = path.segment(st.nextToken());
             } else if ("[".equals(token)) {
-                assertTrue(st.countTokens() >= 2, mkErrMsg(pathString));
+                assertTrue(st.countTokens() >= 2, mkErrMsg(), pathString);
                 path = path.segment(Integer.parseInt(st.nextToken()));
                 String closingBrace = st.nextToken();
-                assertTrue(closingBrace.equals("]"), mkErrMsg(pathString));
+                assertTrue(closingBrace.equals("]"), mkErrMsg(), pathString);
             } else {
-                throw new AssertException(mkErrMsg(pathString));
+                throw new AssertException(format(mkErrMsg(), pathString));
             }
         }
         return path;
@@ -94,8 +129,8 @@ public class ExecutionPath {
         return path;
     }
 
-    private static String mkErrMsg(String pathString) {
-        return "Invalid path string : '" + pathString + "'";
+    private static String mkErrMsg() {
+        return "Invalid path string : '%s'";
     }
 
     /**
@@ -120,11 +155,16 @@ public class ExecutionPath {
         return new ExecutionPath(this, new IntPathSegment(segment));
     }
 
+    public ExecutionPath sibling(String siblingField) {
+        Assert.assertTrue(!ROOT_PATH.equals(this), "You MUST not call this with the root path");
+        return new ExecutionPath(this.parent, new StringPathSegment(siblingField));
+    }
+
     /**
      * @return converts the path into a list of segments
      */
     public List<Object> toList() {
-        return pathList;
+        return new ArrayList<>(pathList);
     }
 
     private List<Object> toListImpl() {
@@ -150,7 +190,7 @@ public class ExecutionPath {
             return "";
         }
 
-        if (parent == ROOT_PATH) {
+        if (ROOT_PATH.equals(parent)) {
             return segment.toString();
         }
 

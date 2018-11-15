@@ -1,7 +1,10 @@
 package graphql;
 
 import graphql.relay.Relay;
-import graphql.schema.*;
+import graphql.schema.GraphQLInterfaceType;
+import graphql.schema.GraphQLNonNull;
+import graphql.schema.GraphQLObjectType;
+import graphql.schema.GraphQLSchema;
 
 import java.util.ArrayList;
 
@@ -18,7 +21,7 @@ public class RelaySchema {
             .field(newFieldDefinition()
                     .name("id")
                     .type(GraphQLString)
-                    .fetchField())
+            )
             .build();
 
     public static GraphQLInterfaceType NodeInterface = relay.nodeInterface(env -> {
@@ -35,8 +38,7 @@ public class RelaySchema {
             .name("Thing")
             .field(newFieldDefinition()
                     .name("id")
-                    .type(GraphQLString)
-                    .fetchField())
+                    .type(GraphQLString))
             .field(newFieldDefinition()
                     .name("stuffs")
                     .type(StuffConnectionType))
@@ -55,7 +57,7 @@ public class RelaySchema {
                     .argument(newArgument()
                             .name("id")
                             .description("id of the thing")
-                            .type(new GraphQLNonNull(GraphQLString)))
+                            .type(GraphQLNonNull.nonNull(GraphQLString)))
                     .dataFetcher(environment -> {
                         //TODO: implement
                         return null;
